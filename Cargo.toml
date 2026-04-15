@@ -1,0 +1,94 @@
+[package]
+name = "rocket-identity"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+authors = ["der_frühling"]
+repository = "https://github.com/der-fruhling/rocket-identity"
+description = """
+An implementation of an OAuth2 server and/or token validator as a Rocket fairing.
+"""
+
+[dependencies]
+base64ct = { version = "1.8", features = ["alloc", "std"], default-features = false }
+chrono = { version = "0.4.44", default-features = false, features = ["now"] }
+ref-cast = { version = "1.0.25", default-features = false }
+rocket = { version = "0.5", default-features = false, features = ["json"] }
+serde = { version = "1.0.228", features = ["derive"], default-features = false }
+serde_json = "1.0.149"
+signature = { version = "2.2.0", optional = true, default-features = false }
+thiserror = { version = "2.0.18", default-features = false }
+tracing = { version = "0.1.44", default-features = false }
+url = { version = "2.5.8", features = ["serde"], default-features = false }
+
+[dependencies.ecdsa]
+version = "0.16.9"
+optional = true
+default-features = true
+
+[dependencies.sha2]
+version = "0.10"
+optional = true
+default-features = false
+
+[dependencies.hmac]
+version = "0.12"
+optional = true
+default-features = false
+
+[dependencies.p256]
+version = "0.13"
+optional = true
+default-features = false
+features = ["ecdsa", "sha256"]
+
+[dependencies.p384]
+version = "0.13"
+optional = true
+default-features = false
+features = ["ecdsa", "sha384"]
+
+[dependencies.p521]
+version = "0.13"
+optional = true
+default-features = false
+features = ["ecdsa", "sha512", "getrandom"]
+
+[dependencies.rsa]
+version = "0.9"
+optional = true
+default-features = false
+features = ["std", "sha2"]
+
+[features]
+hs256 = ["dep:hmac", "dep:sha2"]
+hs384 = ["dep:hmac", "dep:sha2"]
+hs512 = ["dep:hmac", "dep:sha2"]
+rs256 = ["dep:signature", "dep:rsa", "dep:hmac", "dep:sha2"]
+rs384 = ["dep:signature", "dep:rsa", "dep:hmac", "dep:sha2"]
+rs512 = ["dep:signature", "dep:rsa", "dep:hmac", "dep:sha2"]
+es256 = ["dep:signature", "dep:ecdsa", "dep:p256", "dep:hmac", "dep:sha2"]
+es384 = ["dep:signature", "dep:ecdsa", "dep:p384", "dep:hmac", "dep:sha2"]
+es512 = ["dep:signature", "dep:ecdsa", "dep:p521", "dep:hmac", "dep:sha2"]
+ps256 = ["dep:signature", "dep:rsa", "dep:hmac", "dep:sha2", "rsa/getrandom"]
+ps384 = ["dep:signature", "dep:rsa", "dep:hmac", "dep:sha2", "rsa/getrandom"]
+ps512 = ["dep:signature", "dep:rsa", "dep:hmac", "dep:sha2", "rsa/getrandom"]
+
+hs-all = ["hs256", "hs384", "hs512"]
+rs-all = ["rs256", "rs384", "rs512"]
+es-all = ["es256", "es384", "es512"]
+ps-all = ["ps256", "ps384", "ps512"]
+
+complete = ["hs-all", "rs-all", "es-all", "ps-all"]
+tracing-instrument = ["tracing/attributes"]
+
+[dev-dependencies]
+pollster = "0.4.0"
+rocket = { version = "0.5", features = ["json"] }
+
+[dev-dependencies.rsa]
+version = "0.9"
+features = ["std", "sha2", "pem"]
+
+[workspace]
+members = ["test_thing"]

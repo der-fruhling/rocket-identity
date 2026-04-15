@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$/../rocket-identity">
+      <sourceFolder url="file://$MODULE_DIR$/../rocket-identity/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../rocket-identity/test_thing/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../rocket-identity/test_thing/benches" isTestSource="true" />
+      <excludeFolder url="file://$MODULE_DIR$/../rocket-identity/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../rocket-identity/test_thing/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>
