@@ -92,3 +92,8 @@ features = ["std", "sha2", "pem"]
 
 [workspace]
 members = ["test_thing"]
+
+[[example]]
+name = "readme"
+path = "examples/readme.rs"
+required-features = ["hs256"]

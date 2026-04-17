@@ -87,17 +87,14 @@ pub struct Unsigned {
 
 impl Unsigned {
     pub fn new() -> Self {
-        let mut bytes = [0u8; 38];
+        let json = serde_json::to_vec(&JwtHeader::<()> {
+            alg: JwtAlgorithm::None,
+            ..Default::default()
+        }).unwrap();
+        let mut bytes = vec![0u8; json.len().div_ceil(3) * 4];
         let mut enc = Encoder::<Base64UrlUnpadded>::new(&mut bytes).unwrap();
 
-        enc.encode(
-            &serde_json::to_vec(&JwtHeader::<()> {
-                alg: JwtAlgorithm::None,
-                ..Default::default()
-            })
-            .unwrap(),
-        )
-        .unwrap();
+        enc.encode(&json).unwrap();
 
         Self {
             header: enc.finish().unwrap().into(),

@@ -1,0 +1,50 @@
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+    tags:
+      - v*
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  checks: write
+  pull-requests: write
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@nextest
+      - uses: actions/download-artifact@v6
+        with:
+          name: tests-${{ matrix.os }}
+      - name: Run tests
+        run: cargo nextest run --profile=ci --all-features
+      - name: Run doctests
+        run: cargo test --doc
+      - name: Upload test results
+        uses: mikepenz/action-junit-report@v6
+        if: success() || failure()
+        with:
+          report_paths: junit.xml
+          check_name: JUnit - ${{ matrix.os }}
+          comment: true
+  publish:
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.event_name == 'push' && github.ref_type == 'tag' && github.repository == 'der-fruhling/rocket-identity'
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Publish crate
+        run: cargo publish
+        env:
+          CARGE_REGISTRY_TOKEN: ${{ secrets.cargo-api-token }}
