@@ -16,6 +16,7 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -23,9 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: taiki-e/install-action@nextest
-      - uses: actions/download-artifact@v6
-        with:
-          name: tests-${{ matrix.os }}
       - name: Run tests
         run: cargo nextest run --profile=ci --all-features
       - name: Run doctests
