@@ -6,6 +6,8 @@ on:
     tags:
       - v*
 
+name: Rust
+
 env:
   CARGO_TERM_COLOR: always
 
