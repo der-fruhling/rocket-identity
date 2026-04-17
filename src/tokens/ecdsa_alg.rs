@@ -9,8 +9,8 @@ use chrono::{DateTime, Utc};
 use ecdsa::elliptic_curve::sec1::ModulusSize;
 use ecdsa::elliptic_curve::{CurveArithmetic, FieldBytes, NonZeroScalar};
 use rocket::async_trait;
-use signature::{Signer, Verifier};
 use signature::rand_core::OsRng;
+use signature::{Signer, Verifier};
 
 trait KeyConfiguration<const SIZE: usize, Signature> {
     type Key;
@@ -21,9 +21,10 @@ fn common_make_key<C: CurveArithmetic>(
     alg: JwtAlgorithm,
     crv: JwkEllipticCurve,
     affine_point: &impl ecdsa::elliptic_curve::sec1::ToEncodedPoint<C>,
-    id: &Option<String>
+    id: &Option<String>,
 ) -> crate::JwkContent
-    where <C as ecdsa::elliptic_curve::Curve>::FieldBytesSize: ModulusSize
+where
+    <C as ecdsa::elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
 {
     use ecdsa::elliptic_curve::sec1::EncodedPoint;
 
@@ -41,8 +42,8 @@ fn common_make_key<C: CurveArithmetic>(
             crv,
             x: encode_base64::<Base64Url>(affine_point.x().unwrap()).expect("failed to encode x"),
             y: encode_base64::<Base64Url>(affine_point.y().unwrap()).expect("failed to encode y"),
-            d: None
-        }
+            d: None,
+        },
     }
 }
 
@@ -51,9 +52,10 @@ fn common_make_private_key<C: CurveArithmetic>(
     crv: JwkEllipticCurve,
     affine_point: &impl ecdsa::elliptic_curve::sec1::ToEncodedPoint<C>,
     secret_scalar: &NonZeroScalar<C>,
-    id: &Option<String>
+    id: &Option<String>,
 ) -> crate::JwkContent
-where <C as ecdsa::elliptic_curve::Curve>::FieldBytesSize: ModulusSize
+where
+    <C as ecdsa::elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
 {
     use ecdsa::elliptic_curve::sec1::EncodedPoint;
 
@@ -72,8 +74,10 @@ where <C as ecdsa::elliptic_curve::Curve>::FieldBytesSize: ModulusSize
             crv,
             x: encode_base64::<Base64Url>(affine_point.x().unwrap()).expect("failed to encode x"),
             y: encode_base64::<Base64Url>(affine_point.y().unwrap()).expect("failed to encode y"),
-            d: Some(encode_base64::<Base64Url>(&secret[..]).expect("failed to encode secret scalar")),
-        }
+            d: Some(
+                encode_base64::<Base64Url>(&secret[..]).expect("failed to encode secret scalar"),
+            ),
+        },
     }
 }
 
@@ -91,7 +95,7 @@ macro_rules! implement {
 
         #[allow(private_bounds)]
         const _: () = {
-            
+
             $(
                 #[cfg(any(feature = $feature, feature = "es-all"))]
                 impl KeyConfiguration<$bits, $signature> for super::PublicKey {
@@ -175,7 +179,7 @@ macro_rules! implement {
                         common_make_private_key(JwtAlgorithm::$name, JwkEllipticCurve::$crv, self.key.1.as_affine(), self.key.0.as_nonzero_scalar(), &self.id)
                     }
                 }
-                
+
                 #[async_trait]
                 #[cfg(any(feature = $feature, feature = "es-all"))]
                 impl<R: Role> SignToken<R> for $name<super::PrivateKey> {
@@ -186,9 +190,9 @@ macro_rules! implement {
                         let mut enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
                         enc.encode(&body)?;
                         let mut signable = format!("{}.{}", self.header, enc.finish()?);
-                
+
                         let signature: $signature = <$signing_key as Signer<$signature>>::sign(&self.key.0, signable.as_bytes());
-                
+
                         enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
                         enc.encode(&signature.to_bytes())?;
                         signable.push('.');

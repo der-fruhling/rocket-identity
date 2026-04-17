@@ -28,7 +28,7 @@ macro_rules! implement {
             use signature::{Verifier, Signer, Keypair};
             use rocket::async_trait;
             use chrono::{DateTime, Utc};
-            
+
             $(
                 #[cfg(any(feature = $feature, feature = "ps-all"))]
                 impl KeyConfiguration<$bits, $signature> for super::PublicKey {
@@ -105,7 +105,7 @@ macro_rules! implement {
                         super::common_make_private_key_rsa(JwtAlgorithm::$name, self.key.0.as_ref(), &self.id)
                     }
                 }
-                
+
                 #[async_trait]
                 #[cfg(any(feature = $feature, feature = "ps-all"))]
                 impl<R: Role> SignToken<R> for $name<super::PrivateKey> {
@@ -116,9 +116,9 @@ macro_rules! implement {
                         let mut enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
                         enc.encode(&body)?;
                         let mut signable = format!("{}.{}", self.header, enc.finish()?);
-                
+
                         let signature: $signature = <$signing_key as Signer<$signature>>::sign(&self.key.0, signable.as_bytes());
-                
+
                         enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
                         enc.encode(&Box::<[u8]>::from(signature))?;
                         signable.push('.');
@@ -203,29 +203,35 @@ implement! {
 mod tests {
     use super::*;
     use crate::tokens::PrivateKey;
-    use rsa::pkcs8::DecodePrivateKey;
     use rsa::RsaPrivateKey;
+    use rsa::pkcs8::DecodePrivateKey;
 
     const PEM: &str = include_str!("rsatestkey.pem");
 
     #[cfg(feature = "ps256")]
     impl PS256<PrivateKey> {
         fn test_item() -> Self {
-            Self::from_key(rsa::pss::SigningKey::new(RsaPrivateKey::from_pkcs8_pem(PEM).unwrap()))
+            Self::from_key(rsa::pss::SigningKey::new(
+                RsaPrivateKey::from_pkcs8_pem(PEM).unwrap(),
+            ))
         }
     }
 
     #[cfg(feature = "ps384")]
     impl PS384<PrivateKey> {
         fn test_item() -> Self {
-            Self::from_key(rsa::pss::SigningKey::new(RsaPrivateKey::from_pkcs8_pem(PEM).unwrap()))
+            Self::from_key(rsa::pss::SigningKey::new(
+                RsaPrivateKey::from_pkcs8_pem(PEM).unwrap(),
+            ))
         }
     }
 
     #[cfg(feature = "ps512")]
     impl PS512<PrivateKey> {
         fn test_item() -> Self {
-            Self::from_key(rsa::pss::SigningKey::new(RsaPrivateKey::from_pkcs8_pem(PEM).unwrap()))
+            Self::from_key(rsa::pss::SigningKey::new(
+                RsaPrivateKey::from_pkcs8_pem(PEM).unwrap(),
+            ))
         }
     }
 

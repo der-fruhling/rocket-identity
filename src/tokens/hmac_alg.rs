@@ -2,11 +2,11 @@
 
 use crate::secret::SecretStr;
 use crate::tokens::{SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken};
-use crate::{JwtAlgorithm, JwtHeader, JwtClaims, Role};
+use crate::{JwtAlgorithm, JwtClaims, JwtHeader, Role};
 use base64ct::{Base64UrlUnpadded, Decoder, Encoder};
+use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use rocket::async_trait;
-use chrono::{DateTime, Utc};
 
 macro_rules! implement {
     ($($(#[$meta:meta])* [$feature:literal]type $name:ident: $bits:literal = $sha:ty;)*) => {
@@ -18,8 +18,8 @@ macro_rules! implement {
         })*
 
         const _: () = {
-            
-            
+
+
             $(
                 #[cfg(any(feature = $feature, feature = "hs-all"))]
                 impl $name {
@@ -43,7 +43,7 @@ macro_rules! implement {
                         }
                     }
                 }
-                
+
                 #[async_trait]
                 #[cfg(any(feature = $feature, feature = "hs-all"))]
                 impl<R: Role> SignToken<R> for $name {
@@ -54,23 +54,23 @@ macro_rules! implement {
                         let mut enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
                         enc.encode(&body)?;
                         let mut signable = format!("{}.{}", self.header, enc.finish()?);
-                
+
                         let mut hmac = self.hmac.clone();
                         hmac.update(signable.as_bytes());
                         let signature = hmac.finalize().into_bytes();
-                
+
                         enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
                         enc.encode(&signature)?;
                         signable.push('.');
                         signable.push_str(enc.finish()?);
-                
+
                         Ok(TokenSignResult {
                             token: signable.into(),
                             expires: claims.expires.unwrap_or(DateTime::<Utc>::MAX_UTC),
                         })
                     }
                 }
-                
+
                 #[async_trait]
                 #[cfg(any(feature = $feature, feature = "hs-all"))]
                 impl<R: Role> VerifyToken<R> for $name {
@@ -78,13 +78,13 @@ macro_rules! implement {
                         let (content, signature) = token
                             .rsplit_once('.')
                             .ok_or(TokenVerifyError::UnparsableInput)?;
-                
+
                         let mut bytes = Vec::<u8>::new();
                         let mut dec = Decoder::<Base64UrlUnpadded>::new(signature.expose_bytes())?;
                         let signature = dec.decode_to_end(&mut bytes)?;
                         let mut hmac = self.hmac.clone();
                         hmac.update(content.expose_bytes());
-                
+
                         match hmac.verify_slice(signature) {
                             Ok(()) => {
                                 let (_header, content) = content
@@ -112,7 +112,7 @@ macro_rules! implement {
 
                                 Ok(R::from_claims(provider, role).await.map_err(TokenVerifyError::Validation)?)
                             }
-                
+
                             Err(_) => Err(TokenVerifyError::SignatureCheckFailed),
                         }
                     }

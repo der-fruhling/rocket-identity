@@ -1,18 +1,24 @@
+use chrono::{DateTime, Duration, Utc};
+use rocket::response::Responder;
+use rocket::serde::json::Json;
+use rocket::{Build, Rocket, async_trait, routes};
+use rocket_identity::RefOrOwned::Ref;
+use rocket_identity::oauth2::{KeySet, Oauth2, Oauth2Error, Oauth2Response};
+use rocket_identity::tokens::{
+    ES256, HS256, PrivateKey, RS256, SignToken, TokenVerifyError, VerifyToken,
+};
+use rocket_identity::{
+    BearerToken, GeneralError, JwkContent, JwkSet, JwtAlgorithm, JwtClaims, JwtHeader, Provider,
+    Role, allow, const_str, provider_routes,
+};
+use rocket_identity::{RefOrOwned, SecretStr};
+use rsa::pkcs8::DecodePrivateKey;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fmt::{Display, Formatter};
-use chrono::{DateTime, Duration, Utc};
-use rocket::{async_trait, routes, Build, Rocket};
-use rocket::response::Responder;
-use rocket::serde::json::Json;
-use rsa::pkcs8::DecodePrivateKey;
 use thiserror::Error;
-use rocket_identity::{const_str, allow, provider_routes, Bearer, GeneralError, JwtAlgorithm, JwtClaims, Provider, Role, JwtHeader, JwkSet, JwkContent};
-use rocket_identity::oauth2::{KeySet, Oauth2, Oauth2Error, Oauth2Response};
-use rocket_identity::secret::SecretStr;
-use serde::{Deserialize, Serialize};
-use rocket_identity::tokens::{PrivateKey, SignToken, TokenVerifyError, VerifyToken, ES256, HS256, RS256};
 
 const_str! {
     type Miaw = "miaw";
@@ -22,11 +28,16 @@ const PEM: &str = include_str!("rsatestkey.pem");
 
 pub fn rocket() -> Rocket<Build> {
     rocket::build()
-        .attach(rocket_identity::fairing(TestProvider {
-            hs256: HS256::new(SecretStr::new("secret")),
-            rs256: RS256::<PrivateKey>::from_key(rsa::pkcs1v15::SigningKey::from_pkcs8_pem(PEM).unwrap()),
-            es256: ES256::<PrivateKey>::random_with_id("user")
-        }, "/"))
+        .attach(rocket_identity::fairing(
+            TestProvider {
+                hs256: HS256::new(SecretStr::new("secret")),
+                rs256: RS256::<PrivateKey>::from_key(
+                    rsa::pkcs1v15::SigningKey::from_pkcs8_pem(PEM).unwrap(),
+                ),
+                es256: ES256::<PrivateKey>::random_with_id("user"),
+            },
+            "/",
+        ))
         .mount("/", routes![test, miaw])
 }
 
@@ -48,10 +59,25 @@ pub struct TestProvider {
     es256: ES256<PrivateKey>,
 }
 
-#[derive(Error, Debug, Serialize)]
+#[derive(Debug, Serialize)]
 pub enum Error {
-    #[error("general error: {0}")]
-    General(#[from] GeneralError)
+    General(GeneralError),
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::General(e) => write!(f, "general error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+impl From<GeneralError> for Error {
+    fn from(e: GeneralError) -> Self {
+        Error::General(e)
+    }
 }
 
 impl Provider for TestProvider {
@@ -61,10 +87,14 @@ impl Provider for TestProvider {
         Json(error)
     }
 
-    fn get_verifier<R: Role<Provider = Self>>(&self, alg: JwtAlgorithm, _: &'_ JwtHeader) -> Result<&(dyn VerifyToken<R> + Send + Sync), TokenVerifyError<R>> {
+    fn get_verifier<R: Role<Provider = Self>>(
+        &'_ self,
+        alg: JwtAlgorithm,
+        _: &JwtHeader,
+    ) -> Result<RefOrOwned<'_, dyn VerifyToken<R> + Send + Sync>, TokenVerifyError<R>> {
         match alg {
-            JwtAlgorithm::HS256 => Ok(&self.hs256),
-            other => Err(TokenVerifyError::UnsupportedAlgorithm(other))
+            JwtAlgorithm::HS256 => Ok(Ref(&self.hs256)),
+            other => Err(TokenVerifyError::UnsupportedAlgorithm(other)),
         }
     }
 
@@ -81,7 +111,7 @@ impl KeySet for TestProvider {
             self.rs256.as_key(),
             self.rs256.as_private_key_exposed(),
             self.es256.as_key(),
-            self.es256.as_private_key_exposed()
+            self.es256.as_private_key_exposed(),
         ]
     }
 }
@@ -89,12 +119,12 @@ impl KeySet for TestProvider {
 #[derive(Debug)]
 pub struct TestRole {
     pub claims: JwtClaims,
-    pub scopes: HashSet<String>
+    pub scopes: HashSet<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RoleExtra {
-    pub scopes: HashSet<String>
+    pub scopes: HashSet<String>,
 }
 
 impl Display for TestRole {
@@ -112,21 +142,30 @@ impl Role for TestRole {
 
     fn into_claims(self) -> Result<JwtClaims<Self::ClaimsExtra>, Self::ValidationError> {
         Ok(self.claims.with(RoleExtra {
-            scopes: self.scopes
+            scopes: self.scopes,
         }))
     }
 
-    async fn from_claims(_provider: &Self::Provider, claims: JwtClaims<Self::ClaimsExtra>) -> Result<Self, Self::ValidationError> {
+    async fn from_claims(
+        _provider: &Self::Provider,
+        claims: JwtClaims<Self::ClaimsExtra>,
+    ) -> Result<Self, Self::ValidationError> {
         let (claims, extra) = claims.split();
-        Ok(Self { claims, scopes: extra.scopes })
+        Ok(Self {
+            claims,
+            scopes: extra.scopes,
+        })
     }
 
     fn scope(&self) -> &Self::Scope {
         &self.scopes
     }
 
-    fn get_signer<'p>(&'_ self, provider: &'p Self::Provider) -> &'p (dyn SignToken<Self> + Send + Sync) {
-        &provider.hs256
+    fn get_signer<'p>(
+        &'_ self,
+        provider: &'p Self::Provider,
+    ) -> RefOrOwned<'p, dyn SignToken<Self> + Send + Sync> {
+        Ref(&provider.hs256)
     }
 }
 
@@ -135,24 +174,27 @@ impl Oauth2 for TestProvider {
     type ExtraResponse = ();
 
     #[cfg_attr(feature = "tracing-instrument", tracing::instrument(skip_all))]
-    async fn token_from_resource_owner_password(&self,
-                                                client_id: &str,
-                                                client_secret: &SecretStr,
-                                                username: &str,
-                                                password: &SecretStr,
-                                                scopes: &[&str]
+    async fn token_from_resource_owner_password(
+        &self,
+        client_id: &str,
+        client_secret: &SecretStr,
+        username: &str,
+        password: &SecretStr,
+        scopes: &[&str],
     ) -> Result<Oauth2Response<Self::ExtraResponse>, Oauth2Error> {
         tracing::info!(client_id, client_secret = ?client_secret.expose(), username, password = ?password.expose(), ?scopes);
-        let resp = self.sign(TestRole {
-            claims: JwtClaims::new()
-                .issuer("https://example.com")
-                .audience("nobody")
-                .subject(username)
-                .expiration(Utc::now() + Duration::minutes(15))
-                .issued_at(Utc::now())
-                .build(),
-            scopes: scopes.iter().map(|s| s.to_string()).collect()
-        }).await?;
+        let resp = self
+            .sign(TestRole {
+                claims: JwtClaims::new()
+                    .issuer("https://example.com")
+                    .audience("nobody")
+                    .subject(username)
+                    .expiration(Utc::now() + Duration::minutes(15))
+                    .issued_at(Utc::now())
+                    .build(),
+                scopes: scopes.iter().map(|s| s.to_string()).collect(),
+            })
+            .await?;
 
         Ok(Oauth2Response::new(resp.token, "bearer", resp.expires))
     }

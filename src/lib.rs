@@ -1,4 +1,3 @@
-use crate::secret::SecretStr;
 use crate::tokens::{SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken};
 use base64ct::{Base64UrlUnpadded, Decoder};
 use chrono::{DateTime, TimeZone, Utc};
@@ -7,7 +6,7 @@ use rocket::http::uri::Origin;
 use rocket::http::{Method, Status};
 use rocket::request::{FromRequest, Outcome};
 use rocket::response::Responder;
-use rocket::{async_trait, Build, Request, Rocket, Route};
+use rocket::{Build, Request, Rocket, Route, async_trait};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::borrow::{Borrow, Cow};
@@ -21,9 +20,11 @@ use thiserror::Error;
 use url::Url;
 
 pub mod oauth2;
-pub mod secret;
-pub mod tokens;
 pub mod oidc;
+mod secret;
+pub mod tokens;
+
+pub use secret::{AuthorizationHeader, SecretStr};
 
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone, Copy, Default)]
 pub enum JwtAlgorithm {
@@ -58,7 +59,7 @@ pub enum JwtAlgorithm {
 
     #[serde(other)]
     #[default]
-    Unknown
+    Unknown,
 }
 
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone, Copy, Default)]
@@ -67,7 +68,7 @@ pub enum JwtType {
     JWT,
 
     #[serde(other)]
-    Unknown
+    Unknown,
 }
 
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone)]
@@ -77,7 +78,7 @@ pub enum JwkEllipticCurve {
     #[serde(rename = "P-384")]
     P384,
     #[serde(rename = "P-521")]
-    P521
+    P521,
 }
 
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone)]
@@ -101,7 +102,7 @@ pub struct JwkRSAPrivateKey {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub qi: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub oth: Vec<JwkRSAOtherPrime>
+    pub oth: Vec<JwkRSAOtherPrime>,
 }
 
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone)]
@@ -123,16 +124,15 @@ pub enum JwkKey {
     },
 
     #[serde(rename = "oct")]
-    Oct {
-        k: String,
-    }
+    Oct { k: String },
 }
 
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum JwkUse {
-    #[default] Sig,
-    Enc
+    #[default]
+    Sig,
+    Enc,
 }
 
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone)]
@@ -182,7 +182,7 @@ pub struct JwtHeader {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jku: Option<Url>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub jwk: Option<String>,
+    pub jwk: Option<JwkContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -254,10 +254,13 @@ pub mod datetime_serializer {
     use serde::{Deserializer, Serializer};
     use std::fmt::Formatter;
 
-    pub fn serialize<S: Serializer>(date_time: &Option<DateTime<Utc>>, s: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        date_time: &Option<DateTime<Utc>>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
         match date_time {
             None => s.serialize_none(),
-            Some(v) => s.serialize_i64(v.timestamp())
+            Some(v) => s.serialize_i64(v.timestamp()),
         }
     }
 
@@ -272,9 +275,11 @@ pub mod datetime_serializer {
 
         fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
         where
-            E: Error
+            E: Error,
         {
-            DateTime::from_timestamp_secs(v).map(Some).ok_or_else(|| E::custom("invalid timestamp"))
+            DateTime::from_timestamp_secs(v)
+                .map(Some)
+                .ok_or_else(|| E::custom("invalid timestamp"))
         }
 
         fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
@@ -322,15 +327,30 @@ pub struct JwtClaims<Extra = ()> {
     #[doc(alias = "aud")]
     pub audience: Option<JwtUriClaim>,
 
-    #[serde(with = "datetime_serializer", skip_serializing_if = "Option::is_none", default, rename = "exp")]
+    #[serde(
+        with = "datetime_serializer",
+        skip_serializing_if = "Option::is_none",
+        default,
+        rename = "exp"
+    )]
     #[doc(alias = "exp")]
     pub expires: Option<DateTime<Utc>>,
 
-    #[serde(with = "datetime_serializer", skip_serializing_if = "Option::is_none", default, rename = "nbf")]
+    #[serde(
+        with = "datetime_serializer",
+        skip_serializing_if = "Option::is_none",
+        default,
+        rename = "nbf"
+    )]
     #[doc(alias = "nbf")]
     pub not_before: Option<DateTime<Utc>>,
 
-    #[serde(with = "datetime_serializer", skip_serializing_if = "Option::is_none", default, rename = "iat")]
+    #[serde(
+        with = "datetime_serializer",
+        skip_serializing_if = "Option::is_none",
+        default,
+        rename = "iat"
+    )]
     #[doc(alias = "iat")]
     pub issued_at: Option<DateTime<Utc>>,
 
@@ -339,7 +359,7 @@ pub struct JwtClaims<Extra = ()> {
     pub jwt_id: Option<String>,
 
     #[serde(flatten)]
-    extra: Extra
+    extra: Extra,
 }
 
 pub struct JwtClaimsBuilder<Extra = ()>(JwtClaims<Extra>);
@@ -365,16 +385,19 @@ impl JwtClaims<()> {
 
 impl<Extra> JwtClaims<Extra> {
     pub fn split(self) -> (JwtClaims<()>, Extra) {
-        (JwtClaims {
-            issuer: self.issuer,
-            subject: self.subject,
-            audience: self.audience,
-            expires: self.expires,
-            not_before: self.not_before,
-            issued_at: self.issued_at,
-            jwt_id: self.jwt_id,
-            extra: (),
-        }, self.extra)
+        (
+            JwtClaims {
+                issuer: self.issuer,
+                subject: self.subject,
+                audience: self.audience,
+                expires: self.expires,
+                not_before: self.not_before,
+                issued_at: self.issued_at,
+                jwt_id: self.jwt_id,
+                extra: (),
+            },
+            self.extra,
+        )
     }
 }
 
@@ -423,23 +446,38 @@ impl JwtClaimsBuilder<()> {
     }
 }
 
-
 pub trait RocketProvider: crate::Provider {
     fn make_responder<'r>(&self, error: Self::ClientError) -> impl Responder<'r, 'static>;
 
-    fn oauth2(f: impl FnOnce(Oauth2Builder) -> Oauth2Builder) -> impl IntoIterator<Item = Route> where Self: oauth2::Oauth2 {
+    fn oauth2(f: impl FnOnce(Oauth2Builder) -> Oauth2Builder) -> impl IntoIterator<Item = Route>
+    where
+        Self: oauth2::Oauth2,
+    {
         let b = f(Oauth2Builder::default());
 
         [
-            Route::new(Method::Post, b.token_endpoint.as_ref(), oauth2::oauth2_token::<Self>),
-            Route::new(Method::Post, b.revoke_endpoint.as_ref(), oauth2::oauth2_revoke::<Self>)
+            Route::new(
+                Method::Post,
+                b.token_endpoint.as_ref(),
+                oauth2::oauth2_token::<Self>,
+            ),
+            Route::new(
+                Method::Post,
+                b.revoke_endpoint.as_ref(),
+                oauth2::oauth2_revoke::<Self>,
+            ),
         ]
     }
 
-    fn jwk_key_set(_: impl FnOnce(()) -> ()) -> impl IntoIterator<Item = Route> where Self: oauth2::KeySet {
-        [
-            Route::new(Method::Get, "/.well-known/jwks.json", oauth2::jwk_key_set::<Self>)
-        ]
+    fn jwk_key_set(_: impl FnOnce(()) -> ()) -> impl IntoIterator<Item = Route>
+    where
+        Self: oauth2::KeySet,
+    {
+        [Route::new(
+            Method::Get,
+            "/.well-known/jwks.json",
+            oauth2::jwk_key_set::<Self>,
+        )]
     }
 
     #[doc(hidden)]
@@ -465,22 +503,28 @@ impl<V: Provider> rocket::fairing::Fairing for Fairing<V> {
     fn info(&self) -> Info {
         Info {
             name: "Identity",
-            kind: Kind::Ignite
+            kind: Kind::Ignite,
         }
     }
 
     async fn on_ignite(&self, rocket: Rocket<Build>) -> rocket::fairing::Result {
-        Ok(rocket
-            .manage(self.provider.clone())
-            .mount(self.mount_path.clone(), V::routes().into_iter().collect::<Vec<_>>()))
+        Ok(rocket.manage(self.provider.clone()).mount(
+            self.mount_path.clone(),
+            V::routes().into_iter().collect::<Vec<_>>(),
+        ))
     }
 }
 
-pub fn fairing<'a, V: Provider>(validator: impl Into<Arc<V>>, mount_path: impl TryInto<Origin<'static>, Error: Debug>) -> Fairing<V> {
+pub fn fairing<'a, V: Provider>(
+    validator: impl Into<Arc<V>>,
+    mount_path: impl TryInto<Origin<'static>, Error: Debug>,
+) -> Fairing<V> {
     Fairing::<V>::new(validator, mount_path.try_into().unwrap())
 }
 
-#[derive(Error, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug, Hash, Serialize, Deserialize)]
+#[derive(
+    Error, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum GeneralError {
     #[error("not implemented")]
@@ -515,7 +559,7 @@ impl Default for Oauth2Builder {
     fn default() -> Self {
         Self {
             token_endpoint: "/oauth2/token".into(),
-            revoke_endpoint: "/oauth2/revoke".into()
+            revoke_endpoint: "/oauth2/revoke".into(),
         }
     }
 }
@@ -526,28 +570,51 @@ pub trait Provider: Sized + Send + Sync + 'static {
     type ClientError: std::error::Error + From<GeneralError>;
 
     fn make_responder<'r>(&self, error: Self::ClientError) -> impl Responder<'r, 'static>;
-    fn get_verifier<R: Role<Provider = Self>>(&self, alg: JwtAlgorithm, key_id: &'_ JwtHeader) -> Result<&(dyn VerifyToken<R> + Send + Sync), TokenVerifyError<R>>;
+    fn get_verifier<R: Role<Provider = Self>>(
+        &'_ self,
+        alg: JwtAlgorithm,
+        key_id: &JwtHeader,
+    ) -> Result<RefOrOwned<'_, dyn VerifyToken<R> + Send + Sync>, TokenVerifyError<R>>;
 
     fn find_authorization<'r>(&self, request: &'r Request<'_>) -> Option<&'r SecretStr> {
         get_bearer_authorization_header(request)
     }
 
-    fn oauth2(f: impl FnOnce(Oauth2Builder) -> Oauth2Builder) -> impl IntoIterator<Item = Route> where Self: oauth2::Oauth2 {
+    fn oauth2(f: impl FnOnce(Oauth2Builder) -> Oauth2Builder) -> impl IntoIterator<Item = Route>
+    where
+        Self: oauth2::Oauth2,
+    {
         let b = f(Oauth2Builder::default());
 
         [
-            Route::new(Method::Post, b.token_endpoint.as_ref(), oauth2::oauth2_token::<Self>),
-            Route::new(Method::Post, b.revoke_endpoint.as_ref(), oauth2::oauth2_revoke::<Self>)
+            Route::new(
+                Method::Post,
+                b.token_endpoint.as_ref(),
+                oauth2::oauth2_token::<Self>,
+            ),
+            Route::new(
+                Method::Post,
+                b.revoke_endpoint.as_ref(),
+                oauth2::oauth2_revoke::<Self>,
+            ),
         ]
     }
 
-    fn jwk_key_set(_: impl FnOnce(()) -> ()) -> impl IntoIterator<Item = Route> where Self: oauth2::KeySet {
-        [
-            Route::new(Method::Get, "/.well-known/jwks.json", oauth2::jwk_key_set::<Self>)
-        ]
+    fn jwk_key_set(_: impl FnOnce(()) -> ()) -> impl IntoIterator<Item = Route>
+    where
+        Self: oauth2::KeySet,
+    {
+        [Route::new(
+            Method::Get,
+            "/.well-known/jwks.json",
+            oauth2::jwk_key_set::<Self>,
+        )]
     }
 
-    async fn sign<R: Role<Provider = Self>>(&self, token: R) -> Result<TokenSignResult, TokenSignError<R>> {
+    async fn sign<R: Role<Provider = Self>>(
+        &self,
+        token: R,
+    ) -> Result<TokenSignResult, TokenSignError<R>> {
         let signer = token.get_signer(self);
         signer.sign_token(token).await
     }
@@ -788,7 +855,9 @@ macro_rules! all {
 
 #[macro_export]
 macro_rules! not {
-    ($scope:ty) => { $crate::Not::<$crate::allow![$scope]> };
+    ($scope:ty) => {
+        $crate::Not::<$crate::allow![$scope]>
+    };
 }
 
 #[macro_export]
@@ -807,11 +876,15 @@ macro_rules! deny {
 }
 
 pub fn get_bearer_authorization_header<'r>(request: &'r Request<'_>) -> Option<&'r SecretStr> {
-    request.headers().get_one("Authorization").and_then(|header| header.split_once(' ')
-        .and_then(|v| match v.0 {
-            "Bearer" => Some(SecretStr::new(v.1)),
-            _ => None
-        }))
+    request
+        .headers()
+        .get_one("Authorization")
+        .and_then(|header| {
+            header.split_once(' ').and_then(|v| match v.0 {
+                "Bearer" => Some(SecretStr::new(v.1)),
+                _ => None,
+            })
+        })
 }
 
 #[async_trait]
@@ -822,19 +895,25 @@ pub trait Role: Sized + Send + Sync + Debug + Display + 'static {
     type ClaimsExtra: Serialize + DeserializeOwned;
 
     fn into_claims(self) -> Result<JwtClaims<Self::ClaimsExtra>, Self::ValidationError>;
-    async fn from_claims(provider: &Self::Provider, claims: JwtClaims<Self::ClaimsExtra>) -> Result<Self, Self::ValidationError>;
+    async fn from_claims(
+        provider: &Self::Provider,
+        claims: JwtClaims<Self::ClaimsExtra>,
+    ) -> Result<Self, Self::ValidationError>;
 
     fn scope(&self) -> &Self::Scope;
-    fn get_signer<'p>(&'_ self, provider: &'p Self::Provider) -> &'p (dyn SignToken<Self> + Send + Sync);
+    fn get_signer<'p>(
+        &'_ self,
+        provider: &'p Self::Provider,
+    ) -> RefOrOwned<'p, dyn SignToken<Self> + Send + Sync>;
 }
 
-pub struct Bearer<R: Role, Scopes: Scope<R::Scope> = allow![true]> {
+pub struct BearerToken<R: Role, Scopes: Scope<R::Scope> = allow![true]> {
     pub role: R,
     _phantom: PhantomData<Scopes>,
 }
 
 #[async_trait]
-impl<'r, R: Role, Scopes: Scope<R::Scope>> FromRequest<'r> for Bearer<R, Scopes> {
+impl<'r, R: Role, Scopes: Scope<R::Scope>> FromRequest<'r> for BearerToken<R, Scopes> {
     type Error = TokenVerifyError<R>;
 
     #[cfg_attr(feature = "tracing-instrument", tracing::instrument(
@@ -852,17 +931,20 @@ impl<'r, R: Role, Scopes: Scope<R::Scope>> FromRequest<'r> for Bearer<R, Scopes>
             None => {
                 tracing::debug!("Forwarding as no authorization was provided");
                 Outcome::Forward(Status::Unauthorized)
-            },
+            }
             Some(token) => {
                 if let Some((header, _)) = token.split_once('.') {
                     let mut bytes = Vec::<u8>::new();
                     match Decoder::<Base64UrlUnpadded>::new(header.expose_bytes())
                         .and_then(|mut v| v.decode_to_end(&mut bytes))
                     {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => {
                             tracing::warn!("Failed to decode token header, rejecting: {e}");
-                            return Outcome::Error((Status::BadRequest, TokenVerifyError::Base64(e)));
+                            return Outcome::Error((
+                                Status::BadRequest,
+                                TokenVerifyError::Base64(e),
+                            ));
                         }
                     };
 
@@ -870,30 +952,42 @@ impl<'r, R: Role, Scopes: Scope<R::Scope>> FromRequest<'r> for Bearer<R, Scopes>
                         Ok(v) => v,
                         Err(e) => {
                             tracing::warn!("Failed to deserialize token header, rejecting: {e}");
-                            return Outcome::Error((Status::BadRequest, TokenVerifyError::Serialization(e)));
+                            return Outcome::Error((
+                                Status::BadRequest,
+                                TokenVerifyError::Serialization(e),
+                            ));
                         }
                     };
 
                     if jwt_header.typ != JwtType::JWT {
-                        tracing::warn!("Provided authorization was not a JWT, it is {:?}", jwt_header.typ);
-                        return Outcome::Error((Status::BadRequest, TokenVerifyError::NotJWT))
+                        tracing::warn!(
+                            "Provided authorization was not a JWT, it is {:?}",
+                            jwt_header.typ
+                        );
+                        return Outcome::Error((Status::BadRequest, TokenVerifyError::NotJWT));
                     }
 
                     let res = match provider.get_verifier::<R>(jwt_header.alg, &jwt_header) {
                         Ok(baker) => baker.verify_token(provider, token).await,
-                        Err(e) => Err(e)
+                        Err(e) => Err(e),
                     };
 
                     match res {
                         Ok(role) => {
                             if Scopes::test(role.scope()) {
                                 tracing::info!(%role, "Passed authorization gate");
-                                Outcome::Success(Bearer { role, _phantom: PhantomData })
+                                Outcome::Success(BearerToken {
+                                    role,
+                                    _phantom: PhantomData,
+                                })
                             } else {
                                 tracing::warn!(%role, "Missing scopes, rejecting (did not match: {})", Scopes::display());
-                                Outcome::Error((Status::Forbidden, TokenVerifyError::MissingScopes(Scopes::display().to_string())))
+                                Outcome::Error((
+                                    Status::Forbidden,
+                                    TokenVerifyError::MissingScopes(Scopes::display().to_string()),
+                                ))
                             }
-                        },
+                        }
                         Err(e) => {
                             tracing::warn!("Token verification error: {e}");
                             Outcome::Error((Status::Forbidden, e))
@@ -912,7 +1006,7 @@ impl<'r, R: Role, Scopes: Scope<R::Scope>> FromRequest<'r> for Bearer<R, Scopes>
 #[allow(non_snake_case)]
 macro_rules! Bearer {
     [$role:ty$(, $($scopes:tt)*)?] => {
-        $crate::Bearer::<$role$(, $crate::allow![$($scopes)*])?>
+        $crate::BearerToken::<$role$(, $crate::allow![$($scopes)*])?>
     };
 }
 
@@ -988,6 +1082,31 @@ macro_rules! const_str {
     )*};
 }
 
+pub enum RefOrOwned<'p, T: ?Sized> {
+    Ref(&'p T),
+    Owned(Box<T>),
+}
+
+impl<T: ?Sized> AsRef<T> for RefOrOwned<'_, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            RefOrOwned::Ref(v) => v,
+            RefOrOwned::Owned(v) => v,
+        }
+    }
+}
+
+impl<T: ?Sized> Deref for RefOrOwned<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            RefOrOwned::Ref(v) => v,
+            RefOrOwned::Owned(v) => v,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::Scope;
@@ -1018,15 +1137,24 @@ mod tests {
     fn scope_any_of() {
         assert_eq!(<allow![any!(AllowTest, AllowCool)]>::test(&["test"]), true);
         assert_eq!(<allow![any!(AllowTest, AllowCool)]>::test(&["cool"]), true);
-        assert_eq!(<allow![any!(AllowTest, AllowCool)]>::test(&["test", "cool"]), true);
-        assert_eq!(<allow![any!(AllowTest, AllowCool)]>::test(&["openid"]), false);
+        assert_eq!(
+            <allow![any!(AllowTest, AllowCool)]>::test(&["test", "cool"]),
+            true
+        );
+        assert_eq!(
+            <allow![any!(AllowTest, AllowCool)]>::test(&["openid"]),
+            false
+        );
     }
 
     #[test]
     fn scope_all_of() {
         assert_eq!(<allow![all!(AllowTest, AllowCool)]>::test(&["test"]), false);
         assert_eq!(<allow![all!(AllowTest, AllowCool)]>::test(&["cool"]), false);
-        assert_eq!(<allow![all!(AllowTest, AllowCool)]>::test(&["test", "cool"]), true);
+        assert_eq!(
+            <allow![all!(AllowTest, AllowCool)]>::test(&["test", "cool"]),
+            true
+        );
     }
 
     #[test]
@@ -1043,9 +1171,18 @@ mod tests {
         assert_eq!(<compose! { _ => allow![true] }>::test(&["test"]), true);
         assert_eq!(<compose! { _ => allow![false] }>::test(&["test"]), false);
 
-        assert_eq!(<compose! { AllowTest => AllowCool }>::test(&["test"]), false);
-        assert_eq!(<compose! { AllowTest => AllowCool }>::test(&["cool"]), false);
-        assert_eq!(<compose! { AllowTest => AllowCool }>::test(&["test", "cool"]), true);
+        assert_eq!(
+            <compose! { AllowTest => AllowCool }>::test(&["test"]),
+            false
+        );
+        assert_eq!(
+            <compose! { AllowTest => AllowCool }>::test(&["cool"]),
+            false
+        );
+        assert_eq!(
+            <compose! { AllowTest => AllowCool }>::test(&["test", "cool"]),
+            true
+        );
 
         type Composed = compose! {
             AllowTest => allow![],

@@ -2,11 +2,11 @@
 
 use crate::secret::SecretStr;
 use crate::tokens::{SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken};
-use crate::{JwtAlgorithm, JwtHeader, JwtClaims, Role};
+use crate::{JwtAlgorithm, JwtClaims, JwtHeader, Role};
 use base64ct::{Base64UrlUnpadded, Decoder, Encoder};
-use signature::{Verifier, Signer, Keypair};
-use rocket::async_trait;
 use chrono::{DateTime, Utc};
+use rocket::async_trait;
+use signature::{Keypair, Signer, Verifier};
 
 trait KeyConfiguration<const SIZE: usize, Signature> {
     type Key;
