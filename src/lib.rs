@@ -209,7 +209,7 @@ pub struct JwkSet {
 ///
 /// <https://datatracker.ietf.org/doc/html/rfc7515#section-4.1>
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone, Default)]
-pub struct JwtHeader {
+pub struct JwtHeader<Extra = ()> {
     pub alg: JwtAlgorithm,
     pub typ: JwtType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -226,12 +226,24 @@ pub struct JwtHeader {
     pub x5t: Option<String>,
     #[serde(rename = "x5t#S256", default, skip_serializing_if = "Option::is_none")]
     pub x5t_s256: Option<String>,
+
+    pub extra: Extra
 }
 
-impl Add<JwtHeader> for &JwtHeader {
-    type Output = JwtHeader;
+pub trait Combine {
+    fn with(&self, other: Self) -> Self;
+}
 
-    fn add(self, rhs: JwtHeader) -> Self::Output {
+impl Combine for () {
+    fn with(&self, other: Self) -> Self {
+        ()
+    }
+}
+
+impl<'a, Extra: Combine> Add<JwtHeader<Extra>> for &'a JwtHeader<Extra> {
+    type Output = JwtHeader<Extra>;
+
+    fn add(self, rhs: JwtHeader<Extra>) -> Self::Output {
         JwtHeader {
             alg: self.alg,
             typ: self.typ,
@@ -242,6 +254,7 @@ impl Add<JwtHeader> for &JwtHeader {
             x5c: rhs.x5c.or_else(|| self.x5c.clone()),
             x5t: rhs.x5t.or_else(|| self.x5t.clone()),
             x5t_s256: rhs.x5t_s256.or_else(|| self.x5t_s256.clone()),
+            extra: self.extra.with(rhs.extra),
         }
     }
 }
@@ -619,9 +632,10 @@ impl Default for Oauth2Builder {
 #[allow(unused)]
 pub trait Provider: Sized + Send + Sync + 'static {
     type ClientError: std::error::Error + From<GeneralError>;
+    type HeaderExtra: Serialize + DeserializeOwned + Combine + Send + Sync;
 
     fn make_responder<'r>(&self, error: Self::ClientError) -> impl Responder<'r, 'static>;
-    fn get_verifier<R: Role<Provider = Self>>(
+    fn get_verifier<R: Role<Provider = Self, HeaderExtra = Self::HeaderExtra>>(
         &'_ self,
         alg: JwtAlgorithm,
         key_id: &JwtHeader,
@@ -667,7 +681,16 @@ pub trait Provider: Sized + Send + Sync + 'static {
         token: R,
     ) -> Result<TokenSignResult, TokenSignError<R>> {
         let signer = token.get_signer(self);
-        signer.sign_token(token).await
+        signer.sign_token(token, None).await
+    }
+
+    async fn sign_with<R: Role<Provider = Self>>(
+        &self,
+        token: R,
+        header_overrides: JwtHeader<R::HeaderExtra>,
+    ) -> Result<TokenSignResult, TokenSignError<R>> {
+        let signer = token.get_signer(self);
+        signer.sign_token(token, Some(header_overrides)).await
     }
 
     #[doc(hidden)]
@@ -940,10 +963,11 @@ pub fn get_bearer_authorization_header<'r>(request: &'r Request<'_>) -> Option<&
 
 #[async_trait]
 pub trait Role: Sized + Send + Sync + Debug + Display + 'static {
-    type Provider: Provider;
+    type Provider: Provider<HeaderExtra = Self::HeaderExtra>;
     type Scope: ?Sized;
     type ValidationError: std::error::Error + Send + Sync;
     type ClaimsExtra: Serialize + DeserializeOwned;
+    type HeaderExtra: Serialize + DeserializeOwned + Send + Sync;
 
     fn into_claims(self) -> Result<JwtClaims<Self::ClaimsExtra>, Self::ValidationError>;
     async fn from_claims(
@@ -951,8 +975,8 @@ pub trait Role: Sized + Send + Sync + Debug + Display + 'static {
         claims: JwtClaims<Self::ClaimsExtra>,
     ) -> Result<Self, Self::ValidationError>;
 
-    fn construct_header(claims: &JwtClaims<Self::ClaimsExtra>) -> Option<JwtHeader> {
-        None
+    fn construct_header(claims: &JwtClaims<Self::ClaimsExtra>, overrides: Option<JwtHeader<Self::HeaderExtra>>) -> Option<JwtHeader<Self::HeaderExtra>> {
+        overrides
     }
 
     fn scope(&self) -> &Self::Scope;

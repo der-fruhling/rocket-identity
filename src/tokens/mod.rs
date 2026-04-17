@@ -69,7 +69,7 @@ pub struct TokenSignResult {
 
 #[async_trait]
 pub trait SignToken<R: Role> {
-    async fn sign_token(&self, role: R) -> Result<TokenSignResult, TokenSignError<R>>;
+    async fn sign_token(&self, role: R, header: Option<JwtHeader<R::HeaderExtra>>) -> Result<TokenSignResult, TokenSignError<R>>;
 }
 
 #[async_trait]
@@ -91,7 +91,7 @@ impl Unsigned {
         let mut enc = Encoder::<Base64UrlUnpadded>::new(&mut bytes).unwrap();
 
         enc.encode(
-            &serde_json::to_vec(&JwtHeader {
+            &serde_json::to_vec(&JwtHeader::<()> {
                 alg: JwtAlgorithm::None,
                 ..Default::default()
             })
@@ -107,7 +107,7 @@ impl Unsigned {
 
 #[async_trait]
 impl<R: Role> SignToken<R> for Unsigned {
-    async fn sign_token(&self, role: R) -> Result<TokenSignResult, TokenSignError<R>> {
+    async fn sign_token(&self, role: R, header: Option<JwtHeader<R::HeaderExtra>>) -> Result<TokenSignResult, TokenSignError<R>> {
         let claims = role.into_claims().map_err(TokenSignError::Validation)?;
         let body = serde_json::to_vec(&claims)?;
         let mut b64 = vec![0u8; body.len() * 2];
@@ -124,8 +124,8 @@ impl<R: Role> SignToken<R> for Unsigned {
 
 #[async_trait]
 impl<R: Role> SignToken<R> for RefOrOwned<'_, dyn SignToken<R> + Send + Sync> {
-    async fn sign_token(&self, role: R) -> Result<TokenSignResult, TokenSignError<R>> {
-        self.as_ref().sign_token(role).await
+    async fn sign_token(&self, role: R, header: Option<JwtHeader<R::HeaderExtra>>) -> Result<TokenSignResult, TokenSignError<R>> {
+        self.as_ref().sign_token(role, header).await
     }
 }
 
@@ -267,7 +267,7 @@ macro_rules! define_tests {
                 .subject("Test")
                 .build());
             let token = ::pollster::block_on(
-                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone())
+                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone(), None)
             ).unwrap();
 
             let new = ::pollster::block_on(
@@ -284,7 +284,7 @@ macro_rules! define_tests {
                 .expiration(::chrono::Utc::now() - ::chrono::Duration::seconds(60))
                 .build());
             let token = ::pollster::block_on(
-                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone())
+                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone(), None)
             ).unwrap();
 
             let res = ::pollster::block_on(
@@ -301,7 +301,7 @@ macro_rules! define_tests {
                 .not_before(::chrono::Utc::now() + ::chrono::Duration::seconds(60))
                 .build());
             let token = ::pollster::block_on(
-                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone())
+                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone(), None)
             ).unwrap();
 
             let res = ::pollster::block_on(
@@ -318,7 +318,7 @@ macro_rules! define_tests {
                 .issued_at(::chrono::Utc::now() + ::chrono::Duration::seconds(60))
                 .build());
             let token = ::pollster::block_on(
-                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone())
+                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone(), None)
             ).unwrap();
 
             let res = ::pollster::block_on(
@@ -336,7 +336,7 @@ macro_rules! define_tests {
                 .issued_at(::chrono::Utc::now() + ::chrono::Duration::seconds(60))
                 .build());
             let token = ::pollster::block_on(
-                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone())
+                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone(), None)
             ).unwrap();
 
             let res = ::pollster::block_on(
@@ -354,7 +354,7 @@ macro_rules! define_tests {
                 .issued_at(::chrono::Utc::now() + ::chrono::Duration::seconds(60))
                 .build());
             let token = ::pollster::block_on(
-                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone())
+                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone(), None)
             ).unwrap();
 
             let res = ::pollster::block_on(
@@ -372,7 +372,7 @@ macro_rules! define_tests {
                 .issued_at(::chrono::Utc::now() - ::chrono::Duration::seconds(60))
                 .build());
             let token = ::pollster::block_on(
-                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone())
+                <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone(), None)
             ).unwrap();
 
             let res = ::pollster::block_on(
@@ -513,12 +513,13 @@ mod test_common {
 
     impl Provider for TestProvider {
         type ClientError = GeneralError;
+        type HeaderExtra = ();
 
         fn make_responder<'r>(&self, error: Self::ClientError) -> impl Responder<'r, 'static> {
             Json(error)
         }
 
-        fn get_verifier<R: Role<Provider = Self>>(
+        fn get_verifier<R: Role<Provider = Self, HeaderExtra = Self::HeaderExtra>>(
             &'_ self,
             _: JwtAlgorithm,
             _: &JwtHeader,
@@ -546,6 +547,7 @@ mod test_common {
         type Scope = [&'static str];
         type ValidationError = Infallible;
         type ClaimsExtra = ();
+        type HeaderExtra = ();
 
         fn into_claims(self) -> Result<JwtClaims<Self::ClaimsExtra>, Self::ValidationError> {
             Ok(self.0)

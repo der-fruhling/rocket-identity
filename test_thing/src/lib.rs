@@ -67,12 +67,13 @@ pub enum Error {
 
 impl Provider for TestProvider {
     type ClientError = Error;
+    type HeaderExtra = ();
 
     fn make_responder<'r>(&self, error: Self::ClientError) -> impl Responder<'r, 'static> {
         Json(error)
     }
 
-    fn get_verifier<R: Role<Provider = Self>>(
+    fn get_verifier<R: Role<Provider = Self, HeaderExtra = Self::HeaderExtra>>(
         &'_ self,
         alg: JwtAlgorithm,
         _: &JwtHeader,
@@ -124,6 +125,7 @@ impl Role for TestRole {
     type Scope = HashSet<String>;
     type ValidationError = Infallible;
     type ClaimsExtra = RoleExtra;
+    type HeaderExtra = ();
 
     fn into_claims(self) -> Result<JwtClaims<Self::ClaimsExtra>, Self::ValidationError> {
         Ok(self.claims.with(RoleExtra {

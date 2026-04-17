@@ -4,21 +4,22 @@ use crate::secret::SecretStr;
 use crate::tokens::{
     SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken, encode_base64,
 };
-use crate::{JwtAlgorithm, JwtClaims, JwtHeader, Role};
+use crate::{Combine, JwtAlgorithm, JwtClaims, JwtHeader, Role};
 use base64ct::{Base64UrlUnpadded, Decoder, Encoder};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use rocket::async_trait;
 use std::borrow::Cow;
+use serde::Serialize;
 
 macro_rules! implement {
     ($($(#[$meta:meta])* [$feature:literal]type $name:ident: $bits:literal = $sha:ty;)*) => {
         $($(#[$meta])*
         #[cfg(any(feature = $feature, feature = "hs-all"))]
-        pub struct $name {
+        pub struct $name<Extra = ()> {
             hmac: ::hmac::Hmac<$sha>,
             header: Box<str>,
-            header_base: JwtHeader,
+            header_base: JwtHeader<Extra>,
         })*
 
         const _: () = {
@@ -26,9 +27,9 @@ macro_rules! implement {
 
             $(
                 #[cfg(any(feature = $feature, feature = "hs-all"))]
-                impl $name {
-                    pub fn new_with_header(secret: &SecretStr, header: JwtHeader) -> Self {
-                        let header = JwtHeader {
+                impl<Extra: Serialize> $name<Extra> {
+                    pub fn new_with_header(secret: &SecretStr, header: JwtHeader<Extra>) -> Self {
+                        let header = JwtHeader::<Extra> {
                             alg: JwtAlgorithm::$name,
                             ..header
                         };
@@ -47,17 +48,19 @@ macro_rules! implement {
                         }
                     }
 
-                    pub fn new(secret: &SecretStr) -> Self {
+                    pub fn new(secret: &SecretStr) -> Self 
+                        where JwtHeader<Extra>: Default
+                    {
                         Self::new_with_header(secret, Default::default())
                     }
                 }
 
                 #[async_trait]
                 #[cfg(any(feature = $feature, feature = "hs-all"))]
-                impl<R: Role> SignToken<R> for $name {
-                    async fn sign_token(&self, role: R) -> Result<TokenSignResult, TokenSignError<R>> {
+                impl<R: Role<HeaderExtra = Extra>, Extra: Serialize + Combine + Send + Sync> SignToken<R> for $name<Extra> {
+                    async fn sign_token(&self, role: R, header: Option<JwtHeader<Extra>>) -> Result<TokenSignResult, TokenSignError<R>> {
                         let claims = role.into_claims().map_err(TokenSignError::Validation)?;
-                        let header = match R::construct_header(&claims) {
+                        let header = match R::construct_header(&claims, header) {
                             None => Cow::Borrowed(self.header.as_ref()),
                             Some(h) => Cow::Owned(encode_base64::<Base64UrlUnpadded>(serde_json::to_vec(&(&self.header_base + h))?)?)
                         };
@@ -79,7 +82,7 @@ macro_rules! implement {
 
                 #[async_trait]
                 #[cfg(any(feature = $feature, feature = "hs-all"))]
-                impl<R: Role> VerifyToken<R> for $name {
+                impl<R: Role> VerifyToken<R> for $name<R::HeaderExtra> {
                     async fn verify_token(&self, provider: &R::Provider, token: &SecretStr) -> Result<R, TokenVerifyError<R>> {
                         let (content, signature) = token
                             .rsplit_once('.')

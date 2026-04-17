@@ -4,13 +4,14 @@ use crate::secret::SecretStr;
 use crate::tokens::{
     SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken, encode_base64,
 };
-use crate::{JwtAlgorithm, JwtClaims, JwtHeader, Role};
+use crate::{Combine, JwtAlgorithm, JwtClaims, JwtHeader, Role};
 use base64ct::{Base64UrlUnpadded, Decoder, Encoder};
 use chrono::{DateTime, Utc};
 use rocket::async_trait;
 use signature::rand_core::OsRng;
 use signature::{Keypair, Signer, Verifier};
 use std::borrow::Cow;
+use serde::Serialize;
 
 trait KeyConfiguration<const SIZE: usize, Signature> {
     type Key;
@@ -22,11 +23,11 @@ macro_rules! implement {
         $($(#[$meta])*
         #[cfg(any(feature = $feature, feature = "rs-all"))]
         #[allow(private_bounds)]
-        pub struct $name<T: KeyConfiguration<$bits, $signature>> {
+        pub struct $name<T: KeyConfiguration<$bits, $signature>, Extra = ()> {
             key: T::Key,
             #[allow(unused)]
             header: T::Header,
-            header_base: JwtHeader,
+            header_base: JwtHeader<Extra>,
             id: Option<String>,
         })*
 
@@ -45,7 +46,7 @@ macro_rules! implement {
             }
 
             #[cfg(any(feature = $feature, feature = "rs-all"))]
-            impl $name<super::PublicKey> {
+            impl<Extra: Default> $name<super::PublicKey, Extra> {
                 pub fn from_key(key: $verifying_key) -> Self {
                     Self {
                         key,
@@ -70,9 +71,9 @@ macro_rules! implement {
             }
 
             #[cfg(any(feature = $feature, feature = "rs-all"))]
-            impl $name<super::PrivateKey> {
-                pub fn new_with(key: $signing_key, header: JwtHeader) -> Self {
-                    let header = JwtHeader {
+            impl<Extra: Serialize> $name<super::PrivateKey, Extra> {
+                pub fn new_with(key: $signing_key, header: JwtHeader<Extra>) -> Self {
+                    let header = JwtHeader::<Extra> {
                         alg: JwtAlgorithm::$name,
                         ..header
                     };
@@ -91,30 +92,38 @@ macro_rules! implement {
                     }
                 }
 
-                pub fn from_key(key: $signing_key) -> Self {
+                pub fn from_key(key: $signing_key) -> Self
+                    where JwtHeader<Extra>: Default
+                {
                     Self::new_with(key, Default::default())
                 }
 
-                pub fn from_key_with(key: $signing_key, header: JwtHeader) -> Self {
+                pub fn from_key_with(key: $signing_key, header: JwtHeader<Extra>) -> Self {
                     Self::new_with(key, header)
                 }
 
-                pub fn from_key_with_id(key: $signing_key, id: impl Into<String>) -> Self {
-                    Self::new_with(key, JwtHeader {
+                pub fn from_key_with_id(key: $signing_key, id: impl Into<String>) -> Self 
+                    where JwtHeader<Extra>: Default
+                {
+                    Self::new_with(key, JwtHeader::<Extra> {
                         kid: Some(id.into()),
                         ..Default::default()
                     })
                 }
 
-                pub fn random(bit_size: usize) -> rsa::Result<Self> {
+                pub fn random(bit_size: usize) -> rsa::Result<Self>
+                    where JwtHeader<Extra>: Default
+                {
                     Ok(Self::from_key(<$signing_key>::random(&mut OsRng::default(), bit_size)?))
                 }
 
-                pub fn random_with(bit_size: usize, header: JwtHeader) -> rsa::Result<Self> {
+                pub fn random_with(bit_size: usize, header: JwtHeader<Extra>) -> rsa::Result<Self> {
                     Ok(Self::from_key_with(<$signing_key>::random(&mut OsRng::default(), bit_size)?, header))
                 }
 
-                pub fn random_with_id(bit_size: usize, id: impl Into<String>) -> rsa::Result<Self> {
+                pub fn random_with_id(bit_size: usize, id: impl Into<String>) -> rsa::Result<Self>
+                    where JwtHeader<Extra>: Default
+                {
                     Ok(Self::from_key_with_id(<$signing_key>::random(&mut OsRng::default(), bit_size)?, id))
                 }
 
@@ -130,10 +139,10 @@ macro_rules! implement {
 
             #[async_trait]
             #[cfg(any(feature = $feature, feature = "rs-all"))]
-            impl<R: Role> SignToken<R> for $name<super::PrivateKey> {
-                async fn sign_token(&self, role: R) -> Result<TokenSignResult, TokenSignError<R>> {
+            impl<R: Role<HeaderExtra = Extra>, Extra: Serialize + Combine + Send + Sync> SignToken<R> for $name<super::PrivateKey, Extra> {
+                async fn sign_token(&self, role: R, header: Option<JwtHeader<Extra>>) -> Result<TokenSignResult, TokenSignError<R>> {
                     let claims = role.into_claims().map_err(TokenSignError::Validation)?;
-                    let header = match R::construct_header(&claims) {
+                    let header = match R::construct_header(&claims, header) {
                         None => Cow::Borrowed(self.header.as_ref()),
                         Some(h) => Cow::Owned(encode_base64::<Base64UrlUnpadded>(serde_json::to_vec(&(&self.header_base + h))?)?)
                     };
@@ -153,8 +162,8 @@ macro_rules! implement {
             }
 
             #[cfg(any(feature = $feature, feature = "rs-all"))]
-            impl<T: KeyConfiguration<$bits, $signature>> $name<T> {
-                async fn verify<R: Role>(key: &$verifying_key, provider: &R::Provider, token: &SecretStr) -> Result<R, TokenVerifyError<R>> {
+            impl<T: KeyConfiguration<$bits, $signature>, Extra> $name<T, Extra> {
+                async fn verify<R: Role<HeaderExtra = Extra>>(key: &$verifying_key, provider: &R::Provider, token: &SecretStr) -> Result<R, TokenVerifyError<R>> {
                     let (content, signature) = token
                             .rsplit_once('.')
                             .ok_or(TokenVerifyError::UnparsableInput)?;
@@ -196,7 +205,7 @@ macro_rules! implement {
 
             #[async_trait]
             #[cfg(any(feature = $feature, feature = "rs-all"))]
-            impl<R: Role> VerifyToken<R> for $name<super::PrivateKey> {
+            impl<R: Role> VerifyToken<R> for $name<super::PrivateKey, R::HeaderExtra> {
                 async fn verify_token(&self, provider: &R::Provider, token: &SecretStr) -> Result<R, TokenVerifyError<R>> {
                     Self::verify::<R>(&self.key.1, provider, token).await
                 }
@@ -204,7 +213,7 @@ macro_rules! implement {
 
             #[async_trait]
             #[cfg(any(feature = $feature, feature = "rs-all"))]
-            impl<R: Role> VerifyToken<R> for $name<super::PublicKey> {
+            impl<R: Role> VerifyToken<R> for $name<super::PublicKey, R::HeaderExtra> {
                 async fn verify_token(&self, provider: &R::Provider, token: &SecretStr) -> Result<R, TokenVerifyError<R>> {
                     Self::verify::<R>(&self.key, provider, token).await
                 }

@@ -72,6 +72,7 @@ pub struct TestProvider {
 
 impl Provider for TestProvider {
     type ClientError = Error;
+    type HeaderExtra = ();
 
     fn make_responder<'r>(&self, error: Self::ClientError) -> impl Responder<'r, 'static> {
         Json(error)
@@ -83,7 +84,7 @@ impl Provider for TestProvider {
     /// For the most part, just `alg` is needed to find the correct token, but
     /// if you're using the `kid` (key ID) header field you can access that
     /// here to find the correct verifier.
-    fn get_verifier<R: Role<Provider = Self>>(
+    fn get_verifier<R: Role<Provider = Self, HeaderExtra = Self::HeaderExtra>>(
         &'_ self,
         alg: JwtAlgorithm,
         header: &JwtHeader,
@@ -136,6 +137,7 @@ impl Role for TestRole {
     type Scope = HashSet<String>;
     type ValidationError = Infallible;
     type ClaimsExtra = RoleExtra;
+    type HeaderExtra = ();
 
     /// Converts this Role into a JWT's claims. The token will then be signed
     /// immediately afterward and returned to the client.
