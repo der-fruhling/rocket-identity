@@ -1,12 +1,15 @@
 #![cfg(any(feature = "hs256", feature = "hs384", feature = "hs512"))]
 
 use crate::secret::SecretStr;
-use crate::tokens::{SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken};
+use crate::tokens::{
+    SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken, encode_base64,
+};
 use crate::{JwtAlgorithm, JwtClaims, JwtHeader, Role};
 use base64ct::{Base64UrlUnpadded, Decoder, Encoder};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use rocket::async_trait;
+use std::borrow::Cow;
 
 macro_rules! implement {
     ($($(#[$meta:meta])* [$feature:literal]type $name:ident: $bits:literal = $sha:ty;)*) => {
@@ -15,6 +18,7 @@ macro_rules! implement {
         pub struct $name {
             hmac: ::hmac::Hmac<$sha>,
             header: Box<str>,
+            header_base: JwtHeader,
         })*
 
         const _: () = {
@@ -23,24 +27,28 @@ macro_rules! implement {
             $(
                 #[cfg(any(feature = $feature, feature = "hs-all"))]
                 impl $name {
-                    pub fn new(secret: &SecretStr) -> Self {
-                        let mut bytes = [0u8; 36];
+                    pub fn new_with_header(secret: &SecretStr, header: JwtHeader) -> Self {
+                        let header = JwtHeader {
+                            alg: JwtAlgorithm::$name,
+                            ..header
+                        };
+                        let json = serde_json::to_vec(&header).unwrap();
+
+                        let mut bytes = vec![0u8; json.len().div_ceil(3) * 5];
                         let mut enc = Encoder::<Base64UrlUnpadded>::new(&mut bytes).unwrap();
 
-                        enc.encode(
-                            &serde_json::to_vec(&JwtHeader {
-                                alg: JwtAlgorithm::$name,
-                                ..Default::default()
-                            })
-                            .unwrap(),
-                        )
-                        .unwrap();
+                        enc.encode(&json[..]).unwrap();
 
                         Self {
                             // this is infallible
                             hmac: Hmac::<$sha>::new_from_slice(secret.expose_bytes()).unwrap(),
                             header: enc.finish().unwrap().into(),
+                            header_base: header
                         }
+                    }
+
+                    pub fn new(secret: &SecretStr) -> Self {
+                        Self::new_with_header(secret, Default::default())
                     }
                 }
 
@@ -49,20 +57,18 @@ macro_rules! implement {
                 impl<R: Role> SignToken<R> for $name {
                     async fn sign_token(&self, role: R) -> Result<TokenSignResult, TokenSignError<R>> {
                         let claims = role.into_claims().map_err(TokenSignError::Validation)?;
+                        let header = match R::construct_header(&claims) {
+                            None => Cow::Borrowed(self.header.as_ref()),
+                            Some(h) => Cow::Owned(encode_base64::<Base64UrlUnpadded>(serde_json::to_vec(&(&self.header_base + h))?)?)
+                        };
                         let body = serde_json::to_vec(&claims)?;
-                        let mut b64 = vec![0u8; ::std::cmp::max(body.len() * 2, (($bits / 8) / 3) * 6)];
-                        let mut enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
-                        enc.encode(&body)?;
-                        let mut signable = format!("{}.{}", self.header, enc.finish()?);
+                        let mut signable = format!("{}.{}", header, encode_base64::<Base64UrlUnpadded>(body)?);
 
                         let mut hmac = self.hmac.clone();
                         hmac.update(signable.as_bytes());
-                        let signature = hmac.finalize().into_bytes();
 
-                        enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
-                        enc.encode(&signature)?;
                         signable.push('.');
-                        signable.push_str(enc.finish()?);
+                        signable.push_str(&encode_base64::<Base64UrlUnpadded>(hmac.finalize().into_bytes())?);
 
                         Ok(TokenSignResult {
                             token: signable.into(),

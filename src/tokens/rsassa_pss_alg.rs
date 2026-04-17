@@ -1,6 +1,16 @@
 #![cfg(any(feature = "ps256", feature = "ps384", feature = "ps512"))]
 
-use crate::JwtClaims;
+use crate::secret::SecretStr;
+use crate::tokens::{
+    SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken, encode_base64,
+};
+use crate::{JwtAlgorithm, JwtClaims, JwtHeader, Role};
+use base64ct::{Base64UrlUnpadded, Decoder, Encoder};
+use chrono::{DateTime, Utc};
+use rocket::async_trait;
+use signature::rand_core::OsRng;
+use signature::{Keypair, Signer, Verifier};
+use std::borrow::Cow;
 
 trait KeyConfiguration<const SIZE: usize, Signature> {
     type Key;
@@ -16,19 +26,12 @@ macro_rules! implement {
             key: T::Key,
             #[allow(unused)]
             header: T::Header,
+            header_base: JwtHeader,
             id: Option<String>,
         })*
 
         #[allow(private_bounds)]
         const _: () = {
-            use crate::secret::SecretStr;
-            use crate::tokens::{SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken};
-            use crate::{JwtAlgorithm, JwtHeader, Role};
-            use base64ct::{Base64UrlUnpadded, Decoder, Encoder};
-            use signature::{Verifier, Signer, Keypair};
-            use rocket::async_trait;
-            use chrono::{DateTime, Utc};
-
             $(
                 #[cfg(any(feature = $feature, feature = "ps-all"))]
                 impl KeyConfiguration<$bits, $signature> for super::PublicKey {
@@ -48,6 +51,7 @@ macro_rules! implement {
                         Self {
                             key,
                             header: (),
+                            header_base: Default::default(),
                             id: None,
                         }
                     }
@@ -56,6 +60,7 @@ macro_rules! implement {
                         Self {
                             key,
                             header: (),
+                            header_base: Default::default(),
                             id: Some(id.into()),
                         }
                     }
@@ -67,33 +72,51 @@ macro_rules! implement {
 
                 #[cfg(any(feature = $feature, feature = "ps-all"))]
                 impl $name<super::PrivateKey> {
-                    fn from_key_0(key: $signing_key, id: Option<&str>) -> Self {
-                        let mut bytes = vec![0u8; 64];
+                    pub fn new_with(key: $signing_key, header: JwtHeader) -> Self {
+                        let header = JwtHeader {
+                            alg: JwtAlgorithm::$name,
+                            ..header
+                        };
+                        let json = serde_json::to_vec(&header).unwrap();
+                        let mut bytes = vec![0u8; json.len().div_ceil(3) * 4];
                         let mut enc = Encoder::<Base64UrlUnpadded>::new(&mut bytes).unwrap();
 
-                        enc.encode(
-                            &serde_json::to_vec(&JwtHeader {
-                                alg: JwtAlgorithm::$name,
-                                ..Default::default()
-                            })
-                            .unwrap(),
-                        )
-                        .unwrap();
+                        enc.encode(&json[..]).unwrap();
 
                         let verifying_key = key.verifying_key();
                         Self {
                             key: (key, verifying_key),
                             header: enc.finish().unwrap().into(),
-                            id: id.map(Into::into)
+                            id: header.kid.clone().map(Into::into),
+                            header_base: header,
                         }
                     }
 
                     pub fn from_key(key: $signing_key) -> Self {
-                        Self::from_key_0(key, None)
+                        Self::new_with(key, Default::default())
                     }
 
-                    pub fn from_key_with_id(key: $signing_key, id: &str) -> Self {
-                        Self::from_key_0(key, Some(id))
+                    pub fn from_key_with(key: $signing_key, header: JwtHeader) -> Self {
+                        Self::new_with(key, header)
+                    }
+
+                    pub fn from_key_with_id(key: $signing_key, id: impl Into<String>) -> Self {
+                        Self::new_with(key, JwtHeader {
+                            kid: Some(id.into()),
+                            ..Default::default()
+                        })
+                    }
+
+                    pub fn random(bit_size: usize) -> rsa::Result<Self> {
+                        Ok(Self::from_key(<$signing_key>::random(&mut OsRng::default(), bit_size)?))
+                    }
+
+                    pub fn random_with(bit_size: usize, header: JwtHeader) -> rsa::Result<Self> {
+                        Ok(Self::from_key_with(<$signing_key>::random(&mut OsRng::default(), bit_size)?, header))
+                    }
+
+                    pub fn random_with_id(bit_size: usize, id: impl Into<String>) -> rsa::Result<Self> {
+                        Ok(Self::from_key_with_id(<$signing_key>::random(&mut OsRng::default(), bit_size)?, id))
                     }
 
                     pub fn as_key(&self) -> crate::JwkContent {
@@ -111,18 +134,17 @@ macro_rules! implement {
                 impl<R: Role> SignToken<R> for $name<super::PrivateKey> {
                     async fn sign_token(&self, role: R) -> Result<TokenSignResult, TokenSignError<R>> {
                         let claims = role.into_claims().map_err(TokenSignError::Validation)?;
+                        let header = match R::construct_header(&claims) {
+                            None => Cow::Borrowed(self.header.as_ref()),
+                            Some(h) => Cow::Owned(encode_base64::<Base64UrlUnpadded>(serde_json::to_vec(&(&self.header_base + h))?)?)
+                        };
                         let body = serde_json::to_vec(&claims)?;
-                        let mut b64 = vec![0u8; std::cmp::max(body.len() * 2, 1024)];
-                        let mut enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
-                        enc.encode(&body)?;
-                        let mut signable = format!("{}.{}", self.header, enc.finish()?);
+                        let mut signable = format!("{}.{}", header, encode_base64::<Base64UrlUnpadded>(body)?);
 
                         let signature: $signature = <$signing_key as Signer<$signature>>::sign(&self.key.0, signable.as_bytes());
 
-                        enc = Encoder::<Base64UrlUnpadded>::new(&mut b64)?;
-                        enc.encode(&Box::<[u8]>::from(signature))?;
                         signable.push('.');
-                        signable.push_str(enc.finish()?);
+                        signable.push_str(&encode_base64::<Base64UrlUnpadded>(&Box::<[u8]>::from(signature))?);
 
                         Ok(TokenSignResult {
                             token: signable.into(),

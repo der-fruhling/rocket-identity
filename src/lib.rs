@@ -1,3 +1,23 @@
+//! # rocket-identity
+//!
+//! This crate implements OAuth2 and JWT signing / verifying for managing
+//! authorization in Rocket applications.
+//!
+//! cool features:
+//! - Support for HMAC with SHA, ECDSA, and RSA (PKCS#1 v1.5 and PSS)
+//! - Custom fields in returned tokens
+//! - Static type based validation for scopes
+//!
+//! ## Security notice
+//!
+//! This crate has not been audited or security tested in itself.
+//! Use at your own risk!
+//!
+//! ## Usage
+//!
+//! See [this example](https://github.com/der-fruhling/rocket-identity/blob/master/examples/readme.rs)
+//! for usage instructions!
+
 use crate::tokens::{SignToken, TokenSignError, TokenSignResult, TokenVerifyError, VerifyToken};
 use base64ct::{Base64UrlUnpadded, Decoder};
 use chrono::{DateTime, TimeZone, Utc};
@@ -14,7 +34,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::ops::Deref;
+use std::ops::{Add, Deref};
 use std::sync::Arc;
 use thiserror::Error;
 use url::Url;
@@ -26,6 +46,7 @@ pub mod tokens;
 
 pub use secret::{AuthorizationHeader, SecretStr};
 
+/// Identifies an algorithm used for signing JWTs.
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone, Copy, Default)]
 pub enum JwtAlgorithm {
     /// > HMAC using SHA-256
@@ -148,6 +169,13 @@ pub enum JwkKeyOp {
     DeriveBits,
 }
 
+/// Represents the contents of a [JSON Web Key].
+///
+/// These structures can be used to share public (and private) keys to allow
+/// third-party clients to verify tokens. This is notably used in OpenID
+/// Connect to avoid needing to call the issuer to validate ID tokens.
+///
+/// [JSON Web Key]: https://datatracker.ietf.org/doc/html/rfc7517
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone)]
 pub struct JwkContent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -170,11 +198,16 @@ pub struct JwkContent {
     pub key: JwkKey,
 }
 
+/// A sequence of [JwkContent] that conforms to the JWK spec and can be served
+/// at `/.well-known/jwks.json`.
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone)]
 pub struct JwkSet {
     pub keys: Vec<JwkContent>,
 }
 
+/// Known claims within the header of a JWT.
+///
+/// <https://datatracker.ietf.org/doc/html/rfc7515#section-4.1>
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone, Default)]
 pub struct JwtHeader {
     pub alg: JwtAlgorithm,
@@ -193,6 +226,24 @@ pub struct JwtHeader {
     pub x5t: Option<String>,
     #[serde(rename = "x5t#S256", default, skip_serializing_if = "Option::is_none")]
     pub x5t_s256: Option<String>,
+}
+
+impl Add<JwtHeader> for &JwtHeader {
+    type Output = JwtHeader;
+
+    fn add(self, rhs: JwtHeader) -> Self::Output {
+        JwtHeader {
+            alg: self.alg,
+            typ: self.typ,
+            jku: rhs.jku.or_else(|| self.jku.clone()),
+            jwk: rhs.jwk.or_else(|| self.jwk.clone()),
+            kid: rhs.kid.or_else(|| self.kid.clone()),
+            x5u: rhs.x5u.or_else(|| self.x5u.clone()),
+            x5c: rhs.x5c.or_else(|| self.x5c.clone()),
+            x5t: rhs.x5t.or_else(|| self.x5t.clone()),
+            x5t_s256: rhs.x5t_s256.or_else(|| self.x5t_s256.clone()),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Eq, Ord, PartialOrd, PartialEq, Debug, Clone)]
@@ -899,6 +950,10 @@ pub trait Role: Sized + Send + Sync + Debug + Display + 'static {
         provider: &Self::Provider,
         claims: JwtClaims<Self::ClaimsExtra>,
     ) -> Result<Self, Self::ValidationError>;
+
+    fn construct_header(claims: &JwtClaims<Self::ClaimsExtra>) -> Option<JwtHeader> {
+        None
+    }
 
     fn scope(&self) -> &Self::Scope;
     fn get_signer<'p>(

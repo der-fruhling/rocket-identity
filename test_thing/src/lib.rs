@@ -8,8 +8,8 @@ use rocket_identity::tokens::{
     ES256, HS256, PrivateKey, RS256, SignToken, TokenVerifyError, VerifyToken,
 };
 use rocket_identity::{
-    BearerToken, GeneralError, JwkContent, JwkSet, JwtAlgorithm, JwtClaims, JwtHeader, Provider,
-    Role, allow, const_str, provider_routes,
+    Bearer, GeneralError, JwkContent, JwtAlgorithm, JwtClaims, JwtHeader, Provider, Role, allow,
+    const_str, provider_routes,
 };
 use rocket_identity::{RefOrOwned, SecretStr};
 use rsa::pkcs8::DecodePrivateKey;
@@ -59,25 +59,10 @@ pub struct TestProvider {
     es256: ES256<PrivateKey>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Error, Debug, Serialize)]
 pub enum Error {
-    General(GeneralError),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::General(e) => write!(f, "general error: {}", e),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl From<GeneralError> for Error {
-    fn from(e: GeneralError) -> Self {
-        Error::General(e)
-    }
+    #[error("general error: {0}")]
+    General(#[from] GeneralError),
 }
 
 impl Provider for TestProvider {
