@@ -210,7 +210,8 @@ impl<V: Provider> rocket::fairing::Fairing for Fairing<V> {
 /// # use rocket::{Build, Rocket, Route, State};
 /// # use rocket::http::Status;
 /// # use rocket::serde::json::Json;
-/// # use rocket_identity::{GeneralError, , Provider, RefOrOwned, Role};
+/// # use rocket_identity::{GeneralError, Provider, RefOrOwned, Role};
+/// # use rocket_identity::jwt::{JwtAlgorithm, JwtHeader};
 /// # use rocket_identity::tokens::{TokenVerifyError, VerifyToken};
 /// #
 /// /* #[rocket::launch] */

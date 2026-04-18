@@ -166,7 +166,7 @@ impl From<Url> for JwtUriClaim {
 ///
 /// ```
 /// # use url::Url;
-/// # use rocket_identity::{JwtClaims, JwtUriClaim};
+/// # use rocket_identity::jwt::{JwtClaims, JwtUriClaim};
 /// let claims = JwtClaims::new()
 ///     .issuer("https://example.com/issuer")
 ///     .subject("client")
@@ -342,7 +342,7 @@ impl<Extra> JwtClaimsBuilder<Extra> {
     /// Appends a single audience value to this token, preserving existing values.
     ///
     /// ```
-    /// # use rocket_identity::JwtClaims;
+    /// # use rocket_identity::jwt::JwtClaims;
     /// let a = JwtClaims::new()
     ///     .audiences(["test1", "test2"])
     ///     .build();
@@ -371,7 +371,7 @@ impl<Extra> JwtClaimsBuilder<Extra> {
     ///
     /// ```
     /// # use chrono::{TimeDelta, Utc};
-    /// # use rocket_identity::JwtClaims;
+    /// # use rocket_identity::jwt::JwtClaims;
     /// let iss = Utc::now();
     /// let a = JwtClaims::new()
     ///     .issued_at(iss)
@@ -397,7 +397,7 @@ impl<Extra> JwtClaimsBuilder<Extra> {
     ///
     /// ```
     /// # use chrono::{TimeDelta, Utc};
-    /// # use rocket_identity::JwtClaims;
+    /// # use rocket_identity::jwt::JwtClaims;
     /// let iss = Utc::now();
     /// let a = JwtClaims::new()
     ///     .issued_at(iss)
