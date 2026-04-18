@@ -48,13 +48,12 @@ jobs:
         run: |
           cargo nextest store export latest \
             --user-config-file "$RUNNER_TEMP/nextest-config/config.toml" \
-            --archive-file "$RUNNER_TEMP/nextest-run.zip"
+            --archive-file "$RUNNER_TEMP/nextest-run-${{ matrix.os }}.zip"
       - name: Upload recording
         if: steps.build.conclusion == 'success' && !cancelled()
         uses: actions/upload-artifact@v7
         with:
-          name: "nextest-recording-${{ matrix.os }}"
-          path: ${{ runner.temp }}/nextest-run.zip
+          path: ${{ runner.temp }}/nextest-run-${{ matrix.os }}.zip
           archive: false
       - name: Run doctests
         if: steps.build.conclusion == 'success' && !cancelled()
