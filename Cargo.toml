@@ -61,6 +61,8 @@ default-features = false
 features = ["std", "sha2"]
 
 [features]
+default = ["tracing-instrument"]
+
 hs256 = ["dep:hmac", "dep:sha2"]
 hs384 = ["dep:hmac", "dep:sha2"]
 hs512 = ["dep:hmac", "dep:sha2"]
