@@ -318,7 +318,7 @@ pub trait Provider: Sized + Send + Sync + 'static {
     fn find_authorization<'r>(&self, request: &'r Request<'_>) -> Option<&'r SecretStr> {
         get_bearer_authorization_header(request)
     }
-    
+
     fn set_authorization<'r>(&self, response: &'r mut Response<'_>, token: &'r SecretStr) {}
 
     fn oauth2(f: impl FnOnce(Oauth2Builder) -> Oauth2Builder) -> impl IntoIterator<Item = Route>
@@ -565,17 +565,16 @@ impl<T: ?Sized> Deref for RefOrOwned<'_, T> {
     }
 }
 
-pub struct SetAuthorization<'r, 'o: 'r, R: Role, N: Responder<'r, 'o>> {
+pub struct SetAuthorization<R: Role, N> {
     role: R,
     next: N,
-    _phantom: PhantomData<(&'r (), &'o ())>,
 }
 
-pub fn set_authorization<'r, 'o: 'r, R: Role, N: Responder<'r, 'o>>(role: R, responder: N) -> SetAuthorization<'r, 'o, R, N> {
-    SetAuthorization { role, next: responder, _phantom: PhantomData }
+pub fn set_authorization<'r, 'o: 'r, R: Role, N: Responder<'r, 'o>>(role: R, responder: N) -> SetAuthorization<R, N> {
+    SetAuthorization { role, next: responder }
 }
 
-impl<'r, 'o: 'r, R: Role, N: Responder<'r, 'o>> Responder<'r, 'o> for SetAuthorization<'r, 'o, R, N> {
+impl<'r, 'o: 'r, R: Role, N: Responder<'r, 'o>> Responder<'r, 'o> for SetAuthorization<R, N> {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'o> {
         let provider = request.rocket().state::<Arc<R::Provider>>().unwrap();
         let mut resp = self.next.respond_to(request)?;
