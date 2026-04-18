@@ -26,13 +26,42 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: taiki-e/install-action@nextest
+      - name: Create recording user config
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/nextest-config"
+          printf '[experimental]\nrecord = true\n\n[record]\nenabled = true\n' \
+            > "$RUNNER_TEMP/nextest-config/config.toml"
+          cat "$RUNNER_TEMP/nextest-config/config.toml"
+      - name: Build
+        id: build
+        run: cargo build --workspace --all --all-features
       - name: Run tests
-        run: cargo nextest run --profile=ci --all-features
+        if: steps.build.conclusion == 'success' && !cancelled()
+        run: cargo nextest run --profile=ci --all-features --user-config-file "$RUNNER_TEMP/nextest-config/config.toml"
+        env:
+          NEXTEST_EXPERIMENTAL_RECORD: 1
+      - name: Create portable archive from recorded run
+        # Run this step even if the test step fails.
+        if: steps.build.conclusion == 'success' && !cancelled()
+        shell: bash
+        run: |
+          cargo nextest store export latest \
+            --user-config-file "$RUNNER_TEMP/nextest-config/config.toml" \
+            --archive-file "$RUNNER_TEMP/nextest-run.zip"
+      - name: Upload recording
+        if: steps.build.conclusion == 'success' && !cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: "nextest-recording-${{ matrix.os }}"
+          path: ${{ runner.temp }}/nextest-run.zip
+          archive: false
       - name: Run doctests
+        if: steps.build.conclusion == 'success' && !cancelled()
         run: cargo test --doc
       - name: Upload test results
         uses: mikepenz/action-junit-report@v6
-        if: success() || failure()
+        if: steps.build.conclusion == 'success' && !cancelled()
         with:
           report_paths: target/nextest/ci/junit.xml
           check_name: "Test Runs: ${{ matrix.os }}"
