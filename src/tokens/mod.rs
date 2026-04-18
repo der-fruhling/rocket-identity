@@ -4,7 +4,8 @@ mod rsassa_pkcs1_v15_alg;
 mod rsassa_pss_alg;
 
 use crate::secret::SecretStr;
-use crate::{JwtAlgorithm, JwtClaims, JwtHeader, RefOrOwned, Role};
+use crate::jwt::{JwtAlgorithm, JwtClaims, JwtHeader};
+use crate::{RefOrOwned, Role};
 use base64ct::{Base64UrlUnpadded, Decoder, Encoder};
 use chrono::{DateTime, Utc};
 use rocket::async_trait;
@@ -214,7 +215,7 @@ macro_rules! jwk_tests {
             let key: crate::JwkContent = $item.as_key();
 
             std::assert!(key.alg.is_some());
-            std::assert_eq!(key.key_ops, std::vec![crate::JwkKeyOp::Verify]);
+            std::assert_eq!(key.key_ops, std::vec![crate::keys::JwkKeyOp::Verify]);
 
             match key.key {
                 JwkKey::EC { d, .. } => std::assert!(d.is_none()),
@@ -231,7 +232,7 @@ macro_rules! jwk_tests {
             std::assert!(key.alg.is_some());
             std::assert_eq!(
                 key.key_ops,
-                std::vec![crate::JwkKeyOp::Verify, crate::JwkKeyOp::Sign]
+                std::vec![crate::keys::JwkKeyOp::Verify, crate::keys::JwkKeyOp::Sign]
             );
 
             match key.key {
@@ -278,7 +279,7 @@ macro_rules! define_tests {
         fn check_token_expiry() {
             let role = TestRole(JwtClaims::new()
                 .subject("Test")
-                .expiration(::chrono::Utc::now() - ::chrono::Duration::seconds(60))
+                .expires(::chrono::Utc::now() - ::chrono::Duration::seconds(60))
                 .build());
             let token = ::pollster::block_on(
                 <$type as SignToken<TestRole>>::sign_token(&__ITEM, role.clone(), None)
@@ -329,7 +330,7 @@ macro_rules! define_tests {
         fn check_token_expiry_issued_at_precedence() {
             let role = TestRole(JwtClaims::new()
                 .subject("Test")
-                .expiration(::chrono::Utc::now() - ::chrono::Duration::seconds(60))
+                .expires(::chrono::Utc::now() - ::chrono::Duration::seconds(60))
                 .issued_at(::chrono::Utc::now() + ::chrono::Duration::seconds(60))
                 .build());
             let token = ::pollster::block_on(
@@ -425,13 +426,13 @@ fn common_make_key_rsa(
     crate::JwkContent {
         alg: Some(alg),
         kid: id.clone(),
-        r#use: crate::JwkUse::Sig,
-        key_ops: vec![crate::JwkKeyOp::Verify],
+        r#use: crate::keys::JwkUse::Sig,
+        key_ops: vec![crate::keys::JwkKeyOp::Verify],
         x5u: None,
         x5t: None,
         x5c: None,
         x5t_s256: None,
-        key: crate::JwkKey::RSA {
+        key: crate::keys::JwkKey::RSA {
             n: encode_base64::<base64ct::Base64Url>(key.n().to_bytes_be())
                 .expect("encoding modulus failed"),
             e: encode_base64::<base64ct::Base64Url>(key.e().to_bytes_be())
@@ -459,18 +460,18 @@ fn common_make_private_key_rsa(
     crate::JwkContent {
         alg: Some(alg),
         kid: id.clone(),
-        r#use: crate::JwkUse::Sig,
-        key_ops: vec![crate::JwkKeyOp::Verify, crate::JwkKeyOp::Sign],
+        r#use: crate::keys::JwkUse::Sig,
+        key_ops: vec![crate::keys::JwkKeyOp::Verify, crate::keys::JwkKeyOp::Sign],
         x5u: None,
         x5t: None,
         x5c: None,
         x5t_s256: None,
-        key: crate::JwkKey::RSA {
+        key: crate::keys::JwkKey::RSA {
             n: encode_base64::<base64ct::Base64Url>(key.n().to_bytes_be())
                 .expect("encoding modulus failed"),
             e: encode_base64::<base64ct::Base64Url>(key.e().to_bytes_be())
                 .expect("encoding exponent failed"),
-            private_key: Some(crate::JwkRSAPrivateKey {
+            private_key: Some(crate::keys::JwkRSAPrivateKey {
                 d: encode_base64::<base64ct::Base64Url>(key.d().to_bytes_be())
                     .expect("encoding private exponent failed"),
                 p: Some(

@@ -1,15 +1,16 @@
 use chrono::{DateTime, Duration, Utc};
 use rocket::response::Responder;
 use rocket::serde::json::Json;
-use rocket::{Build, Rocket, async_trait, routes};
+use rocket::{async_trait, routes, Build, Rocket};
 use rocket_identity::RefOrOwned::Ref;
 use rocket_identity::oauth2::{KeySet, Oauth2, Oauth2Error, Oauth2Response};
 use rocket_identity::tokens::{
-    ES256, HS256, PrivateKey, RS256, SignToken, TokenVerifyError, VerifyToken,
+    PrivateKey, SignToken, TokenVerifyError, VerifyToken, ES256, HS256, RS256,
 };
+use rocket_identity::jwt::{JwtAlgorithm, JwtClaims, JwtHeader};
 use rocket_identity::{
-    Bearer, GeneralError, JwkContent, JwtAlgorithm, JwtClaims, JwtHeader, Provider, Role, allow,
-    const_str, provider_routes,
+    allow, const_str, provider_routes, Bearer, GeneralError,
+    Provider, Role,
 };
 use rocket_identity::{RefOrOwned, SecretStr};
 use rsa::pkcs8::DecodePrivateKey;
@@ -19,6 +20,7 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fmt::{Display, Formatter};
 use thiserror::Error;
+use rocket_identity::keys::JwkContent;
 
 const_str! {
     type Miaw = "miaw";
@@ -176,7 +178,7 @@ impl Oauth2 for TestProvider {
                     .issuer("https://example.com")
                     .audience("nobody")
                     .subject(username)
-                    .expiration(Utc::now() + Duration::minutes(15))
+                    .expires(Utc::now() + Duration::minutes(15))
                     .issued_at(Utc::now())
                     .build(),
                 scopes: scopes.iter().map(|s| s.to_string()).collect(),

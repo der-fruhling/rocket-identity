@@ -16,12 +16,6 @@ use std::mem;
 #[repr(transparent)]
 pub struct SecretStr(str);
 
-impl Debug for SecretStr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("<token>")
-    }
-}
-
 impl SecretStr {
     pub fn new(s: &str) -> &Self {
         Self::ref_cast(s)

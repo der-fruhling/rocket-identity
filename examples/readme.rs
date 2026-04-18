@@ -1,14 +1,15 @@
-use chrono::{Duration, Utc};
+use chrono::TimeDelta;
 use rocket::response::Responder;
 use rocket::serde::json::Json;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::{async_trait, routes};
 use rocket_identity::{
-    Bearer, GeneralError, JwtAlgorithm, JwtClaims, JwtHeader, Provider,
+    Bearer, GeneralError, Provider,
     RefOrOwned::{self, Ref},
     Role, SecretStr, const_str,
     oauth2::{Oauth2, Oauth2Error, Oauth2Response},
     provider_routes,
+    jwt::{JwtAlgorithm, JwtClaims, JwtHeader},
     tokens::{
         // Token implementations require enabling feature flags.
         // HS256 requires the `hs256` flag and will pull in `hmac` and `sha2`.
@@ -207,8 +208,8 @@ impl Oauth2 for TestProvider {
                     .issuer("https://example.com")
                     .audience(client_id)
                     .subject(username)
-                    .expiration(Utc::now() + Duration::minutes(15))
-                    .issued_at(Utc::now())
+                    .issued_now()
+                    .expires_in(TimeDelta::minutes(15))
                     .build(),
 
                 // NOTE: this unsafely adds all requested scopes to the token

@@ -1,6 +1,6 @@
 use crate::secret::{AuthorizationHeader, SecretStr};
 use crate::tokens::{TokenSignError, TokenSignResult};
-use crate::{GeneralError, JwkContent, JwkSet, Provider, Role};
+use crate::{GeneralError, Provider, Role};
 use chrono::{DateTime, Utc};
 use rocket::data::FromData;
 use rocket::form::{DataField, Error, Errors, Form, FromForm, Options, ValueField};
@@ -10,7 +10,7 @@ use rocket::request::FromRequest;
 use rocket::response::Responder;
 use rocket::serde::json::Json;
 use rocket::serde::{Deserialize, Serialize};
-use rocket::{Data, Request, Response, async_trait, route};
+use rocket::{async_trait, route, Data, Request, Response};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::io::Cursor;
@@ -18,6 +18,7 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use url::Url;
+use crate::keys::{JwkContent, JwkSet};
 
 /// Implements the `error` field as described by the OAuth2 spec.
 ///
