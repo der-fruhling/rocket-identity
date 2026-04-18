@@ -182,8 +182,7 @@ impl Oauth2 for TestProvider {
                     .issued_at(Utc::now())
                     .build(),
                 scopes: scopes.iter().map(|s| s.to_string()).collect(),
-            })
-            .await?;
+            })?;
 
         Ok(Oauth2Response::new(resp.token, "bearer", resp.expires))
     }

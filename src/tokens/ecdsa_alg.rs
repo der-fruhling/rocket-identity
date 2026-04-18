@@ -202,10 +202,9 @@ macro_rules! implement {
                 }
             }
 
-            #[async_trait]
             #[cfg(any(feature = $feature, feature = "es-all"))]
             impl<R: Role<HeaderExtra = Extra>, Extra: Serialize + Combine + Send + Sync> SignToken<R> for $name<super::PrivateKey, Extra> {
-                async fn sign_token(&self, role: R, header: Option<JwtHeader<Extra>>) -> Result<TokenSignResult, TokenSignError<R>> {
+                fn sign_token(&self, role: R, header: Option<JwtHeader<Extra>>) -> Result<TokenSignResult, TokenSignError<R>> {
                     let claims = role.into_claims().map_err(TokenSignError::Validation)?;
                     let header = match R::construct_header(&claims, header) {
                         None => Cow::Borrowed(self.header.as_ref()),

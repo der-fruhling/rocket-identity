@@ -28,7 +28,7 @@ use rocket::http::uri::Origin;
 use rocket::http::{Method, Status};
 use rocket::request::{FromRequest, Outcome};
 use rocket::response::Responder;
-use rocket::{async_trait, Build, Request, Rocket, Route};
+use rocket::{async_trait, Build, Request, Response, Rocket, Route};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::borrow::{Borrow, Cow};
@@ -318,6 +318,8 @@ pub trait Provider: Sized + Send + Sync + 'static {
     fn find_authorization<'r>(&self, request: &'r Request<'_>) -> Option<&'r SecretStr> {
         get_bearer_authorization_header(request)
     }
+    
+    fn set_authorization<'r>(&self, response: &'r mut Response<'_>, token: &'r SecretStr) {}
 
     fn oauth2(f: impl FnOnce(Oauth2Builder) -> Oauth2Builder) -> impl IntoIterator<Item = Route>
     where
@@ -350,21 +352,21 @@ pub trait Provider: Sized + Send + Sync + 'static {
         )]
     }
 
-    async fn sign<R: Role<Provider = Self>>(
+    fn sign<R: Role<Provider = Self>>(
         &self,
         token: R,
     ) -> Result<TokenSignResult, TokenSignError<R>> {
         let signer = token.get_signer(self);
-        signer.sign_token(token, None).await
+        signer.sign_token(token, None)
     }
 
-    async fn sign_with<R: Role<Provider = Self>>(
+    fn sign_with<R: Role<Provider = Self>>(
         &self,
         token: R,
         header_overrides: JwtHeader<R::HeaderExtra>,
     ) -> Result<TokenSignResult, TokenSignError<R>> {
         let signer = token.get_signer(self);
-        signer.sign_token(token, Some(header_overrides)).await
+        signer.sign_token(token, Some(header_overrides))
     }
 
     #[doc(hidden)]
@@ -563,4 +565,25 @@ impl<T: ?Sized> Deref for RefOrOwned<'_, T> {
     }
 }
 
+pub struct SetAuthorization<'r, 'o: 'r, R: Role, N: Responder<'r, 'o>> {
+    role: R,
+    next: N,
+    _phantom: PhantomData<(&'r (), &'o ())>,
+}
 
+pub fn set_authorization<'r, 'o: 'r, R: Role, N: Responder<'r, 'o>>(role: R, responder: N) -> SetAuthorization<'r, 'o, R, N> {
+    SetAuthorization { role, next: responder, _phantom: PhantomData }
+}
+
+impl<'r, 'o: 'r, R: Role, N: Responder<'r, 'o>> Responder<'r, 'o> for SetAuthorization<'r, 'o, R, N> {
+    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'o> {
+        let provider = request.rocket().state::<Arc<R::Provider>>().unwrap();
+        let mut resp = self.next.respond_to(request)?;
+        let token = provider.sign(self.role).map_err(|e| {
+            tracing::error!("error signing token: {e}");
+            Status::InternalServerError
+        })?;
+        provider.set_authorization(&mut resp, token.token.as_ref());
+        Ok(resp)
+    }
+}

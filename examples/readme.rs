@@ -215,8 +215,7 @@ impl Oauth2 for TestProvider {
                 // NOTE: this unsafely adds all requested scopes to the token
                 // shouldn't need to be said but don't do this in prod!
                 scopes: scopes.iter().map(|s| s.to_string()).collect(),
-            })
-            .await?;
+            })?;
 
         // OAuth2 response can be constructed by into(), which will be
         // serialized and returned to the client.
