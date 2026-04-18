@@ -29,16 +29,16 @@ jobs:
       - name: Create recording user config
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/nextest-config"
+          mkdir -p "${{ runner.temp }}/nextest-config"
           printf '[experimental]\nrecord = true\n\n[record]\nenabled = true\n' \
-            > "$RUNNER_TEMP/nextest-config/config.toml"
-          cat "$RUNNER_TEMP/nextest-config/config.toml"
+            > "${{ runner.temp }}/nextest-config/config.toml"
+          cat "${{ runner.temp }}/nextest-config/config.toml"
       - name: Build
         id: build
         run: cargo build --workspace --all --all-features
       - name: Run tests
         if: steps.build.conclusion == 'success' && !cancelled()
-        run: cargo nextest run --profile=ci --all-features --user-config-file "$RUNNER_TEMP/nextest-config/config.toml"
+        run: cargo nextest run --profile=ci --all-features --user-config-file "${{ runner.temp }}/nextest-config/config.toml"
         env:
           NEXTEST_EXPERIMENTAL_RECORD: 1
       - name: Create portable archive from recorded run
@@ -47,8 +47,8 @@ jobs:
         shell: bash
         run: |
           cargo nextest store export latest \
-            --user-config-file "$RUNNER_TEMP/nextest-config/config.toml" \
-            --archive-file "$RUNNER_TEMP/nextest-run-${{ matrix.os }}.zip"
+            --user-config-file "${{ runner.temp }}/nextest-config/config.toml" \
+            --archive-file "${{ runner.temp }}/nextest-run-${{ matrix.os }}.zip"
       - name: Upload recording
         if: steps.build.conclusion == 'success' && !cancelled()
         uses: actions/upload-artifact@v7
