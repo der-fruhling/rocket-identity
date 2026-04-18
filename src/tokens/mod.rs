@@ -392,7 +392,7 @@ macro_rules! define_tests {
 }
 
 #[cfg(any(
-    // feature = "hs256", feature = "hs384", feature = "hs512",
+    feature = "hs256", feature = "hs384", feature = "hs512",
     feature = "es256", feature = "es384", feature = "es512",
     feature = "rs256", feature = "rs384", feature = "rs512",
     feature = "ps256", feature = "ps384", feature = "ps512"
