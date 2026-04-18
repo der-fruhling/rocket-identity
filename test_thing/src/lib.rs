@@ -45,13 +45,13 @@ pub fn rocket() -> Rocket<Build> {
 
 #[rocket::get("/test")]
 fn test(auth: Bearer![TestRole]) -> String {
-    let sub = auth.role.claims.subject.as_deref().unwrap();
+    let sub = auth.claims.subject.as_deref().unwrap();
     format!("Hello, {sub}!")
 }
 
 #[rocket::get("/miaw")]
 fn miaw(auth: Bearer![TestRole, Miaw]) -> String {
-    let sub = auth.role.claims.subject.as_deref().unwrap();
+    let sub = auth.claims.subject.as_deref().unwrap();
     format!("Miaw, {sub}!")
 }
 

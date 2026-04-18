@@ -60,7 +60,7 @@ pub fn launch() -> _ {
 /// [rocket_identity::Scope] manually if necessary.
 #[rocket::get("/test")]
 fn test(auth: Bearer![TestRole, HasTest]) -> String {
-    let sub = auth.role.claims.subject.as_deref().unwrap();
+    let sub = auth.claims.subject.as_deref().unwrap();
     format!("Hello, {sub}!")
 }
 

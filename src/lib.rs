@@ -36,7 +36,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::ops::{Add, Deref};
+use std::ops::{Add, Deref, DerefMut};
 use std::sync::Arc;
 use thiserror::Error;
 use url::Url;
@@ -422,8 +422,22 @@ pub trait Role: Sized + Send + Sync + Debug + Display + 'static {
 }
 
 pub struct BearerToken<R: Role, Scopes: Scope<R::Scope> = allow![true]> {
-    pub role: R,
+    role: R,
     _phantom: PhantomData<Scopes>,
+}
+
+impl<R: Role, Scopes: Scope<R::Scope>> Deref for BearerToken<R, Scopes> {
+    type Target = R;
+
+    fn deref(&self) -> &Self::Target {
+        &self.role
+    }
+}
+
+impl<R: Role, Scopes: Scope<R::Scope>> DerefMut for BearerToken<R, Scopes> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.role
+    }
 }
 
 #[async_trait]
